@@ -1,0 +1,18 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: clifsa-mysql
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: clifsa_local
+      MYSQL_DATABASE: clifsa_attendance
+      MYSQL_USER: clifsaattendance
+      MYSQL_PASSWORD: clifsa_local
+    volumes:
+      - clifsa-mysql-data:/var/lib/mysql
+      - ./mysql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+volumes:
+  clifsa-mysql-data:
