@@ -180,7 +180,7 @@ export function SetLeaveDialog({
 
           {selectedEmpId === "all" && (
             <p className="text-xs text-muted-foreground -mt-2">
-              Applies to every active employee. People already on leave for this range are skipped.
+              Applies to every active employee.
             </p>
           )}
 

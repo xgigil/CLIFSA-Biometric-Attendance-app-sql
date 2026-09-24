@@ -144,13 +144,9 @@ export function SetHolidayDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Set Company Holiday</DialogTitle>
+          <DialogTitle>Set Holiday Dates</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
-          <p className="text-xs text-muted-foreground -mt-1">
-            Applies to all employees. Personal leave cannot be set on these
-            dates.
-          </p>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">

@@ -78,3 +78,19 @@ CREATE TABLE IF NOT EXISTS company_holidays (
   KEY holidays_date_range (start_date, end_date),
   CONSTRAINT holidays_created_by_fk FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- For Testing Only
+INSERT INTO employees (employee_id, employee_name, is_active) VALUES
+  (1001, 'Ana Reyes', 1),
+  (1002, 'Ben Santos', 1),
+  (1003, 'Carla Mendoza', 1),
+  (1004, 'Diego Cruz', 1),
+  (1005, 'Elena Garcia', 1),
+  (1006, 'Francis Lim', 1),
+  (1007, 'Gina Torres', 1),
+  (1008, 'Hiro Tanaka', 1),
+  (1009, 'Isabel Navarro', 1),
+  (1010, 'Jake Villanueva', 1);
+  
+SHOW TABLES;

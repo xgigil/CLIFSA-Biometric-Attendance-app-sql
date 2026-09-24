@@ -7,7 +7,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -67,17 +66,6 @@ const LEAVE_TYPES = [
   { value: "unpaid", label: "Unpaid Leave" },
   { value: "other", label: "Other" },
 ];
-
-function formatDayTitle(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  if (!y || !m || !d) return dateStr;
-  return new Date(y, m - 1, d, 12, 0, 0).toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function formatShortDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -269,14 +257,15 @@ export function EditDayDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit Day</DialogTitle>
-          <DialogDescription>
-            {employeeName || "Unknown employee"}
-            {date ? ` \u2014 ${formatDayTitle(date)}` : ""}
-          </DialogDescription>
+          <DialogTitle>Edit Attendance Record</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 py-1">
+          <div>
+            <Label className="text-xs text-muted-foreground">Employee</Label>
+            <p className="font-semibold text-sm">{employeeName || "Unknown"}</p>
+          </div>
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs text-muted-foreground">Punches</Label>
@@ -474,11 +463,6 @@ export function EditDayDialog({
                         present days or logged hours; scan times stay on the record.
                       </p>
                     )}
-
-                    <p className="text-xs text-muted-foreground">
-                      Covers this day only. Use Set Leave in the sidebar for a
-                      multi-day range.
-                    </p>
                   </div>
                 )}
               </div>
