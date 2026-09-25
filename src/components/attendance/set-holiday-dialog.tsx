@@ -142,27 +142,28 @@ export function SetHolidayDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Set Holiday Dates</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="holiday-start">Start date</Label>
               <Input
                 id="holiday-start"
                 type="date"
+                className="w-full min-w-0"
                 value={startDate}
                 onChange={(e) => handleStartDateChange(e.target.value)}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="holiday-end">End date</Label>
               <Input
                 id="holiday-end"
                 type="date"
+                className="w-full min-w-0"
                 min={startDate}
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
@@ -174,6 +175,7 @@ export function SetHolidayDialog({
             <Label htmlFor="holiday-note">Note</Label>
             <Input
               id="holiday-note"
+              className="w-full min-w-0"
               value={note}
               maxLength={255}
               required
@@ -193,17 +195,17 @@ export function SetHolidayDialog({
             ) : holidays.length === 0 ? (
               <p className="text-sm text-muted-foreground">No holidays set yet.</p>
             ) : (
-              <ul className="max-h-36 overflow-y-auto space-y-2">
+              <ul className="max-h-36 sm:max-h-48 overflow-y-auto space-y-2">
                 {holidays.map((h) => (
                   <li
                     key={h.id}
-                    className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+                    className="flex flex-col gap-2 rounded-md border px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
-                      <div className="font-medium truncate">
+                      <div className="font-medium break-words">
                         {h.note || "Untitled holiday"}
                       </div>
-                      <div className="text-xs text-muted-foreground truncate">
+                      <div className="text-xs text-muted-foreground break-words">
                         {h.start_date}
                         {h.end_date !== h.start_date ? ` – ${h.end_date}` : ""}
                       </div>
@@ -212,7 +214,7 @@ export function SetHolidayDialog({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-7 text-xs text-rose-600 shrink-0"
+                      className="h-7 w-full text-xs text-rose-600 sm:w-auto sm:shrink-0"
                       disabled={removingId === h.id}
                       onClick={() => handleRemove(h.id)}
                     >
@@ -232,12 +234,17 @@ export function SetHolidayDialog({
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => onOpenChange(false)}
               disabled={loading}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || fetching}>
+            <Button
+              type="submit"
+              className="w-full sm:w-auto"
+              disabled={loading || fetching}
+            >
               {loading && <Spinner className="size-4 mr-2" />} Save Holiday
             </Button>
           </DialogFooter>

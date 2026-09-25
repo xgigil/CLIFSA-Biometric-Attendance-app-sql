@@ -14,6 +14,12 @@
   * Month cells show the holiday note on the same line as the leave type.
   * The day dialog shows the holiday note when the selected day is a holiday.
 
+* **Remove leave from the Set Leave dialog.**
+
+  * When an employee and date range overlap an existing approved leave, that leave is listed in the dialog with a remove action.
+  * Removal requires confirmation; multi-day leaves warn that the entire leave span will be deleted, not only the selected range.
+  * The existing-leave section appears only when overlaps exist, and sits at the bottom of the form.
+
 ### Updated
 
 * **`src/utils/attendance-processor.ts`**
@@ -28,6 +34,16 @@
 * **`src/components/employee-attendance-calendar.tsx`**
 
   * Looked up the matching leave or holiday for a day and rendered the type and notes in the month cell and the day dialog.
+
+* **`src/components/attendance/set-leave-dialog.tsx`**
+
+  * Fetched overlapping leaves for the selected employee and range.
+  * Added inline remove with confirmation messaging.
+  * Made the dialog scrollable and layout friendlier on smaller screens.
+
+* **`src/components/attendance/set-holiday-dialog.tsx`**
+
+  * Made the dialog scrollable and stacked holiday rows/actions more cleanly on smaller screens.
 
 ## [1.0.3] - Admin dashboard card update
 
