@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.0.4] - Leave and holiday details on the calendar
+
+### Added
+
+* **Leave type and note on the employee calendar.**
+
+  * Month cells show the leave type on the first line and the note on the second, in the same place as punch times and hours.
+  * The day dialog shows Reason for Leave and Additional Note when the selected day is on leave.
+
+* **Holiday note on the employee calendar.**
+
+  * Month cells show the holiday note on the same line as the leave type.
+  * The day dialog shows the holiday note when the selected day is a holiday.
+
+### Updated
+
+* **`src/utils/attendance-processor.ts`**
+
+  * Added `leave_type` and `note` to `LeaveRow`.
+  * Added `note` to `HolidayRow`.
+
+* **`src/app/dashboard/calendar/page.tsx`**
+
+  * Calendar leave and holiday queries now select those text columns.
+
+* **`src/components/employee-attendance-calendar.tsx`**
+
+  * Looked up the matching leave or holiday for a day and rendered the type and notes in the month cell and the day dialog.
+
 ## [1.0.3] - Admin dashboard card update
 
 ### Updated

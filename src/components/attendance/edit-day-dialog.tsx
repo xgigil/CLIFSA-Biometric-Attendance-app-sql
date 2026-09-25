@@ -397,11 +397,10 @@ export function EditDayDialog({
 
             {!fetchingLeave && isCompanyHoliday && (
               <div className="rounded-lg border border-slate-200 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/40 p-3 text-sm space-y-1">
-                <div className="font-medium text-foreground">Company Holiday</div>
+                <div className="font-medium text-foreground">{holidayNote ? `${holidayNote}` : "Holiday"}</div>
                 <div className="text-xs text-muted-foreground">
-                  This day is a company holiday for all employees. Personal leave
+                  This day is a holiday for all employees. Personal leave
                   cannot be set here.
-                  {holidayNote ? ` Holiday: ${holidayNote}` : ""}
                 </div>
               </div>
             )}

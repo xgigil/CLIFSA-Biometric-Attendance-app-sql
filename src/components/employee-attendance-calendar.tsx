@@ -99,6 +99,43 @@ function formatDateTitle(dateStr: string): string {
   }
 }
 
+function dayKey(value: string | null | undefined): string {
+  return (value ?? "").substring(0, 10);
+}
+
+const LEAVE_TYPE_LABELS: Record<string, string> = {
+  vacation: "Vacation",
+  sick: "Sick Leave",
+  unpaid: "Unpaid Leave",
+  other: "Other",
+};
+
+function findLeaveForDay(leaves: LeaveRow[], employeeId: number, date: string) {
+  const day = dayKey(date);
+  return (
+    leaves.find((leave) => {
+      const start = dayKey(leave.start_date);
+      const end = dayKey(leave.end_date || leave.start_date);
+      return (
+        Number(leave.employee_id) === Number(employeeId) &&
+        start <= day &&
+        day <= end
+      );
+    }) ?? null
+  );
+}
+
+function findHolidayForDay(holidays: HolidayRow[], date: string) {
+  const day = dayKey(date);
+  return (
+    holidays.find((holiday) => {
+      const start = dayKey(holiday.start_date);
+      const end = dayKey(holiday.end_date || holiday.start_date);
+      return start <= day && day <= end;
+    }) ?? null
+  );
+}
+
 export function EmployeeAttendanceCalendar({
   logs,
   leaves = EMPTY_LEAVES,
@@ -156,6 +193,16 @@ export function EmployeeAttendanceCalendar({
   const [selectedDay, setSelectedDay] = useState<CalendarDayStatus | null>(
     null
   );
+
+  const leaveForDay =
+  selectedDay?.status === "on_leave"
+    ? findLeaveForDay(leaves, employeeId, selectedDay.date)
+    : null;
+
+const holidayForDay =
+  selectedDay?.status === "holiday"
+    ? findHolidayForDay(holidays, selectedDay.date)
+    : null;
 
   const handlePrevMonth = () => {
     let newMonth = month - 1;
@@ -270,6 +317,14 @@ export function EmployeeAttendanceCalendar({
         <div className="grid grid-cols-7 gap-1 md:gap-2">
           {matrix.map((cell) => {
             const isToday = cell.date === todayStr;
+            const cellLeave = 
+              cell.status === "on_leave"
+                ? findLeaveForDay(leaves, employeeId, cell.date)
+                : null;
+            const cellHoliday =
+              cell.status === "holiday"
+                ? findHolidayForDay(holidays, cell.date)
+                : null;
 
             return (
               <button
@@ -353,10 +408,26 @@ export function EmployeeAttendanceCalendar({
                         </div>
                       )}
                     </>
+                  ) : cellLeave ? (
+                    <>
+                      <div className="text-muted-foreground truncate">
+                        {LEAVE_TYPE_LABELS[cellLeave.leave_type ?? "vacation"] ?? "Vacation"}
+                      </div>
+                      {cellLeave.note?.trim() && (
+                        <div className="text-[10px] font-medium text-foreground/80 truncate">
+                          {cellLeave.note}
+                        </div>
+                      )}
+                    </>
+                  ) : cellHoliday?.note?.trim() ? (
+                    <>
+                      <div className="text-muted-foreground truncate">{cellHoliday.note}</div>
+                      <div className="text-[10px] font-medium invisible" aria-hidden="true">
+                        &nbsp;
+                      </div>
+                    </>
                   ) : cell.isCurrentMonth && !cell.isWeekend && cell.status !== "future" && cell.status !== "on_leave" && cell.status !== "holiday" ? (
-                    <span className="text-[10px] text-muted-foreground/60 italic">
-                      No scan
-                    </span>
+                    <span className="text-[10px] text-muted-foreground/60 italic">No scan</span>
                   ) : null}
                 </div>
               </button>
@@ -438,6 +509,34 @@ export function EmployeeAttendanceCalendar({
                   </div>
                 </div>
 
+                {selectedDay.status === "on_leave" && leaveForDay && (
+                  <div className="space-y-3 rounded-lg bg-muted/20">
+                    <div>
+                      <span className="text-xs text-muted-foreground">Reason for Leave</span>
+                      <div className="mt-1.5 text-sm font-semibold text-foreground">
+                        {LEAVE_TYPE_LABELS[leaveForDay.leave_type ?? "vacation"] ?? "Vacation"}
+                      </div>
+                    </div>
+                    {leaveForDay.note?.trim() && (
+                      <div>
+                        <span className="text-xs text-muted-foreground">Additional Note</span>
+                        <p className="mt-1.5 text-sm font-medium text-foreground wrap-break-word">
+                          {leaveForDay.note}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {selectedDay.status === "holiday" && holidayForDay?.note?.trim() && (
+                  <div className="rounded-lg bg-muted/20">
+                    <span className="text-xs text-muted-foreground">Holiday</span>
+                    <p className="mt-1.5 text-sm font-medium text-foreground wrap-break-word">
+                      {holidayForDay.note}
+                    </p>
+                  </div>
+                )}
+                
                 {/* Raw Biometric Scan Logs Breakdown */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between mb-2.5 text-xs text-muted-foreground">

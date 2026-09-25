@@ -81,14 +81,14 @@ async function CalendarContainer({
       .maybeSingle(),
     supabase
       .from("employee_leaves")
-      .select("employee_id, start_date, end_date")
+      .select("employee_id, start_date, end_date, leave_type, note") // Added leave_type and note
       .eq("status", "approved")
       .eq("employee_id", selectedEmployeeId)
       .lte("start_date", endDate)
       .gte("end_date", startDate),
     supabase
       .from("company_holidays")
-      .select("start_date, end_date")
+      .select("start_date, end_date, note") // Added note
       .lte("start_date", endDate)
       .gte("end_date", startDate),
   ]);

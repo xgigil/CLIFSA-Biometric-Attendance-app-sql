@@ -23,6 +23,8 @@ export type LeaveRow = {
   employee_id: number;
   start_date: string;
   end_date: string;
+  leave_type?: string | null;
+  note?: string | null;
 }
 
 export type LeaveIndex = Set<string>;
@@ -63,6 +65,7 @@ export function isOnLeave( index: LeaveIndex, empId: number | string, dateStr: s
 export type HolidayRow = {
   start_date: string;
   end_date: string;
+  note?: string | null;
 };
 
 export type HolidayIndex = Set<string>;
