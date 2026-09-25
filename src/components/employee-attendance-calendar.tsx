@@ -317,6 +317,14 @@ const holidayForDay =
         <div className="grid grid-cols-7 gap-1 md:gap-2">
           {matrix.map((cell) => {
             const isToday = cell.date === todayStr;
+            const cellLeave = 
+              cell.status === "on_leave"
+                ? findLeaveForDay(leaves, employeeId, cell.date)
+                : null;
+            const cellHoliday =
+              cell.status === "holiday"
+                ? findHolidayForDay(holidays, cell.date)
+                : null;
 
             return (
               <button
@@ -400,10 +408,26 @@ const holidayForDay =
                         </div>
                       )}
                     </>
+                  ) : cellLeave ? (
+                    <>
+                      <div className="text-muted-foreground truncate">
+                        {LEAVE_TYPE_LABELS[cellLeave.leave_type ?? "vacation"] ?? "Vacation"}
+                      </div>
+                      {cellLeave.note?.trim() && (
+                        <div className="text-[10px] font-medium text-foreground/80 truncate">
+                          {cellLeave.note}
+                        </div>
+                      )}
+                    </>
+                  ) : cellHoliday?.note?.trim() ? (
+                    <>
+                      <div className="text-muted-foreground truncate">{cellHoliday.note}</div>
+                      <div className="text-[10px] font-medium invisible" aria-hidden="true">
+                        &nbsp;
+                      </div>
+                    </>
                   ) : cell.isCurrentMonth && !cell.isWeekend && cell.status !== "future" && cell.status !== "on_leave" && cell.status !== "holiday" ? (
-                    <span className="text-[10px] text-muted-foreground/60 italic">
-                      No scan
-                    </span>
+                    <span className="text-[10px] text-muted-foreground/60 italic">No scan</span>
                   ) : null}
                 </div>
               </button>
