@@ -124,22 +124,25 @@ describe("leave actions", () => {
     expect(res.error).toContain("Unauthorized");
   });
 
-  it("should return failure if holiday is used as a leave type", async () => {
+  it("should return failure if no valid leave type can be resolved", async () => {
     mockAdminSession();
     vi.mocked(createAdminClient).mockResolvedValue({
-      from: vi.fn().mockReturnValue(makeChain()),
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [], error: null });
+        }
+        return makeChain({ data: [], error: null });
+      }),
     } as any);
 
     const res = await setLeaveAction({
       employee_id: 100,
       start_date: "2026-09-21",
       end_date: "2026-09-21",
-      leave_type: "holiday",
     });
     expect(res).toEqual({
       success: false,
-      error:
-        "Holiday is not a leave type. Use Set Holiday to create holidays.",
+      error: "Invalid or inactive leave type.",
     });
   });
 
@@ -147,6 +150,9 @@ describe("leave actions", () => {
     mockAdminSession();
     vi.mocked(createAdminClient).mockResolvedValue({
       from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
         if (table === "company_holidays") {
           return makeChain({ data: [{ id: 1 }], error: null });
         }
@@ -158,6 +164,7 @@ describe("leave actions", () => {
       employee_id: 100,
       start_date: "2026-09-07",
       end_date: "2026-09-07",
+      leave_type_id: 1,
     });
     expect(res).toEqual({
       success: false,
@@ -169,6 +176,9 @@ describe("leave actions", () => {
     mockAdminSession();
     vi.mocked(createAdminClient).mockResolvedValue({
       from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
         if (table === "company_holidays") {
           return makeChain({ data: [], error: null });
         }
@@ -183,6 +193,7 @@ describe("leave actions", () => {
       employee_id: 100,
       start_date: "2026-09-11",
       end_date: "2026-09-12",
+      leave_type_id: 1,
     });
     expect(res).toEqual({
       success: false,
@@ -195,6 +206,9 @@ describe("leave actions", () => {
     const insertSpy = vi.fn().mockResolvedValue({ data: null, error: null });
     vi.mocked(createAdminClient).mockResolvedValue({
       from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
         const c = makeChain({ data: [], error: null });
         if (table === "employee_leaves") {
           c.insert = insertSpy;
@@ -207,7 +221,7 @@ describe("leave actions", () => {
       employee_id: 100,
       start_date: "2026-09-21",
       end_date: "2026-09-22",
-      leave_type: "vacation",
+      leave_type_id: 1,
     });
     expect(res.success).toBe(true);
     expect(insertSpy).toHaveBeenCalledWith(
@@ -215,7 +229,7 @@ describe("leave actions", () => {
         employee_id: 100,
         start_date: "2026-09-21",
         end_date: "2026-09-22",
-        leave_type: "vacation",
+        leave_type_id: 1,
         status: "approved",
         created_by: "admin-1",
       })
@@ -250,6 +264,9 @@ describe("leave actions", () => {
     let leaveOverlapChecks = 0;
     vi.mocked(createAdminClient).mockResolvedValue({
       from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
         if (table === "employees") {
           return makeChain({
             data: [{ employee_id: 100 }, { employee_id: 200 }],
@@ -279,11 +296,13 @@ describe("leave actions", () => {
     const res = await setLeaveForAllAction({
       start_date: "2026-09-21",
       end_date: "2026-09-22",
+      leave_type_id: 1,
     });
     expect(res.success).toBe(true);
     expect(res).toMatchObject({ created: 1, skipped: 1 });
     expect(inserts).toHaveLength(1);
     expect(inserts[0].employee_id).toBe(200);
+    expect(inserts[0].leave_type_id).toBe(1);
   });
 
   it("should return failure if leave for all employees overlaps a holiday", async () => {
@@ -291,6 +310,9 @@ describe("leave actions", () => {
     const insertSpy = vi.fn();
     vi.mocked(createAdminClient).mockResolvedValue({
       from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
         if (table === "employees") {
           return makeChain({ data: [{ employee_id: 200 }], error: null });
         }
@@ -306,6 +328,7 @@ describe("leave actions", () => {
     const res = await setLeaveForAllAction({
       start_date: "2026-09-07",
       end_date: "2026-09-07",
+      leave_type_id: 1,
     });
     expect(res).toEqual({
       success: false,
@@ -346,7 +369,10 @@ describe("leave actions", () => {
     } as any);
     const insertSpy = vi.fn().mockResolvedValue({ data: null, error: null });
     vi.mocked(createAdminClient).mockResolvedValue({
-      from: vi.fn().mockImplementation(() => {
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
         const c = makeChain({ data: [], error: null });
         c.insert = insertSpy;
         return c;
@@ -357,24 +383,46 @@ describe("leave actions", () => {
       employee_id: 100,
       start_date: "2026-09-28",
       end_date: "2026-09-28",
+      leave_type_id: 1,
     });
     expect(res.success).toBe(true);
   });
 
   it("should return all employees' leave records when no employee is specified", async () => {
     const leaves = [
-      { id: 1, employee_id: 100, start_date: "2026-09-10", end_date: "2026-09-11" },
-      { id: 2, employee_id: 200, start_date: "2026-09-12", end_date: "2026-09-12" },
+      {
+        id: 1,
+        employee_id: 100,
+        start_date: "2026-09-10",
+        end_date: "2026-09-11",
+        leave_type_id: 1,
+        note: "",
+      },
+      {
+        id: 2,
+        employee_id: 200,
+        start_date: "2026-09-12",
+        end_date: "2026-09-12",
+        leave_type_id: 1,
+        note: "",
+      },
     ];
     vi.mocked(createClient).mockResolvedValue({
-      from: vi.fn().mockImplementation(() =>
-        makeChain({ data: leaves, error: null })
-      ),
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({
+            data: [{ id: 1, name: "Vacation" }],
+            error: null,
+          });
+        }
+        return makeChain({ data: leaves, error: null });
+      }),
     } as any);
 
     const res = await getLeavesForRangedAction("2026-09-01", "2026-09-30");
     expect(res.success).toBe(true);
     expect(res.data).toHaveLength(2);
+    expect(res.data?.[0]).toMatchObject({ leave_type_name: "Vacation" });
   });
 
   it("should deny a non-admin leave write before any database insert happens", async () => {

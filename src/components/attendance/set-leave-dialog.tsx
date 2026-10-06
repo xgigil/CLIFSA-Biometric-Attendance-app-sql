@@ -26,6 +26,7 @@ import {
   setLeaveForAllAction,
   getLeavesForRangedAction,
   removeLeaveAction,
+  getActiveLeaveTypesAction,
 } from "@/app/dashboard/leaves/actions";
 
 interface SetLeaveDialogProps {
@@ -45,17 +46,15 @@ interface LeaveRecord {
   employee_id: number;
   start_date: string;
   end_date: string;
-  leave_type: string | null;
+  leave_type_id: number;
+  leave_type_name: string;
   note: string | null;
 }
 
-const LEAVE_TYPES = [
-  // Add here the types of on-leave here
-  { value: "vacation", label: "Vacation" },
-  { value: "sick", label: "Sick Leave" },
-  { value: "unpaid", label: "Unpaid Leave" },
-  { value: "other", label: "Other" },
-];
+interface LeaveTypeOption {
+  id: number;
+  name: string;
+}
 
 function formatLeaveDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -82,10 +81,13 @@ export function SetLeaveDialog({
   const [selectedEmpId, setSelectedEmpId] = React.useState<string>("");
   const [startDate, setStartDate] = React.useState<string>("");
   const [endDate, setEndDate] = React.useState<string>("");
-  const [leaveType, setLeaveType] = React.useState<string>("vacation");
+  const [leaveTypes, setLeaveTypes] = React.useState<LeaveTypeOption[]>([]);
+  const [leaveTypeId, setLeaveTypeId] = React.useState<string>("");
   const [note, setNote] = React.useState<string>("");
   const [loading, setLoading] = React.useState<boolean>(false);
   const [fetchingEmployees, setFetchingEmployees] =
+    React.useState<boolean>(false);
+  const [fetchingLeaveTypes, setFetchingLeaveTypes] =
     React.useState<boolean>(false);
   const [existingLeaves, setExistingLeaves] = React.useState<LeaveRecord[]>(
     []
@@ -109,7 +111,8 @@ export function SetLeaveDialog({
 
     setStartDate(initialDate);
     setEndDate(initialDate);
-    setLeaveType("vacation");
+    setLeaveTypeId("");
+    setLeaveTypes([]);
     setNote("");
     setSelectedEmpId(defaultEmployeeId ? String(defaultEmployeeId) : "");
     setExistingLeaves([]);
@@ -127,6 +130,33 @@ export function SetLeaveDialog({
         }
       })
       .finally(() => setFetchingEmployees(false));
+
+    setFetchingLeaveTypes(true);
+    getActiveLeaveTypesAction()
+      .then((res) => {
+        if (res.success && res.data) {
+          const types = res.data.map((t: { id: number; name: string }) => ({
+            id: Number(t.id),
+            name: t.name,
+          }));
+
+          if (types.length === 0) {
+            setLeaveTypes([]);
+            setLeaveTypeId("");
+            toast.error("No active leave types configured");
+            return;
+          }
+
+          setLeaveTypes(types);
+          const vacation = types.find((t: LeaveTypeOption) => t.name === "Vacation");
+          setLeaveTypeId(String(vacation?.id ?? types[0]?.id ?? ""));
+        } else {
+          setLeaveTypes([]);
+          setLeaveTypeId("");
+          toast.error(res.error || "Failed to fetch leave types");
+        }
+      })
+      .finally(() => setFetchingLeaveTypes(false));
   }, [open, defaultDate, defaultEmployeeId]);
 
   // Look up leaves that overlap the selected employee + date range.
@@ -211,6 +241,14 @@ export function SetLeaveDialog({
     if (selectedEmpId !== "all" && existingLeaves.length > 0) {
       return toast.error("Remove the existing leave first, or change the dates");
     }
+    if (fetchingLeaveTypes || leaveTypes.length === 0 || !leaveTypeId) {
+      return toast.error("Leave types are still loading");
+    }
+
+    const parsedLeaveTypeId = parseInt(leaveTypeId, 10);
+    if (Number.isNaN(parsedLeaveTypeId)) {
+      return toast.error("Please select a leave type");
+    }
 
     setLoading(true);
     try {
@@ -218,7 +256,7 @@ export function SetLeaveDialog({
         const res = await setLeaveForAllAction({
           start_date: startDate,
           end_date: endDate,
-          leave_type: leaveType,
+          leave_type_id: parsedLeaveTypeId,
           note: note.trim() || undefined,
         });
 
@@ -239,7 +277,7 @@ export function SetLeaveDialog({
           employee_id: parseInt(selectedEmpId, 10),
           start_date: startDate,
           end_date: endDate,
-          leave_type: leaveType,
+          leave_type_id: parsedLeaveTypeId,
           note: note.trim() || undefined,
         });
 
@@ -264,6 +302,9 @@ export function SetLeaveDialog({
   const saveDisabled =
     loading ||
     fetchingEmployees ||
+    fetchingLeaveTypes ||
+    leaveTypes.length === 0 ||
+    !leaveTypeId ||
     fetchingLeave ||
     removingLeaveId !== null ||
     hasOverlappingLeave;
@@ -333,22 +374,32 @@ export function SetLeaveDialog({
 
           <div className="space-y-2">
             <Label htmlFor="leave-type">Leave type</Label>
-            <Select value={leaveType} onValueChange={setLeaveType}>
-              <SelectTrigger id="leave-type" className="w-full min-w-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LEAVE_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    {t.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {fetchingLeaveTypes ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Spinner className="size-4" /> Loading leave types...
+              </div>
+            ) : (
+              <Select
+                value={leaveTypeId}
+                onValueChange={setLeaveTypeId}
+                disabled={leaveTypes.length === 0}
+              >
+                <SelectTrigger id="leave-type" className="w-full min-w-0">
+                  <SelectValue placeholder="Select leave type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {leaveTypes.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="leave-note">Note (optional)</Label>
+            <Label htmlFor="leave-note">Reason</Label>
             <Input
               id="leave-note"
               className="w-full min-w-0"
@@ -356,8 +407,8 @@ export function SetLeaveDialog({
               maxLength={255}
               placeholder={
                 selectedEmpId === "all"
-                  ? "e.g. Team offsite / shared leave"
-                  : "e.g. Approved by HR"
+                  ? "e.g. Team offsite / Parade"
+                  : "e.g. Personal Matters / Family Emergency"
               }
               onChange={(e) => setNote(e.target.value)}
             />
@@ -390,8 +441,8 @@ export function SetLeaveDialog({
                           <> &ndash; {formatLeaveDate(leave.end_date)}</>
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground capitalize break-words">
-                        {(leave.leave_type || "vacation").replace("_", " ")}
+                      <div className="text-xs text-muted-foreground break-words">
+                        {leave.leave_type_name || "Unknown"}
                         {leave.note ? ` \u2022 ${leave.note}` : ""}
                       </div>
                       {isConfirming ? (
@@ -399,8 +450,8 @@ export function SetLeaveDialog({
                           <p className="text-xs font-medium text-rose-600 dark:text-rose-400">
                             {spansMultipleDays ? (
                               <>
-                                Remove this leave? This will remove the entire {dayCount}-day
-                                leave and cannot be undone.
+                                Remove this leave? This will remove the entire{" "}
+                                {dayCount}-day leave and cannot be undone.
                               </>
                             ) : (
                               <>Remove this leave? This cannot be undone.</>

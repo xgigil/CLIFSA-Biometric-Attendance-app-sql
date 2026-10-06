@@ -66,7 +66,7 @@ async function CalendarContainer({
   const lastDayNum = new Date(year, month, 0).getDate();
   const endDate = `${yearStr}-${monthStr}-${String(lastDayNum).padStart(2, "0")}`;
 
-  const [logsRes, sysSettingsRes, leavesRes, holidaysRes] = await Promise.all([
+  const [logsRes, sysSettingsRes, leavesRes, holidaysRes, leaveTypesRes] = await Promise.all([
     supabase
       .from("hik_biometric_logs")
       .select("*")
@@ -81,7 +81,7 @@ async function CalendarContainer({
       .maybeSingle(),
     supabase
       .from("employee_leaves")
-      .select("employee_id, start_date, end_date, leave_type, note") // Added leave_type and note
+      .select("employee_id, start_date, end_date, leave_type_id, note") // Added leave_type_id and note
       .eq("status", "approved")
       .eq("employee_id", selectedEmployeeId)
       .lte("start_date", endDate)
@@ -91,6 +91,9 @@ async function CalendarContainer({
       .select("start_date, end_date, note") // Added note
       .lte("start_date", endDate)
       .gte("end_date", startDate),
+    supabase
+      .from("leave_type_policies")
+      .select("id, name")
   ]);
 
   if (logsRes.error) {
@@ -109,9 +112,33 @@ async function CalendarContainer({
     console.error("Holidays fetch error:", holidaysRes.error);
   }
 
+  if (leaveTypesRes.error) {
+    console.error("Leave type policies fetch error:", leaveTypesRes.error);
+  }
+
   const logs = logsRes.data || [];
-  const leaves = leavesRes.data || [];
   const holidays = holidaysRes.data || [];
+  const rawLeaves = leavesRes.data || [];
+
+  const nameById = new Map<number, string>(
+    (leaveTypesRes.data || []).map(
+      (t: { id:number; name: string }) => [Number(t.id), t.name] as [number, string]
+    )
+  );
+
+  const leaves = rawLeaves.map(
+    (row: {
+      employee_id: number;
+      start_date: string;
+      end_date: string;
+      leave_type_id: number;
+      note: string | null;
+    }) => ({
+      ...row,
+      leave_type_name: nameById.get(Number(row.leave_type_id)) || "Unknown",
+    })
+  );
+  
   const workStartTime = sysSettingsRes.data?.work_start_time || "09:00";
   const gracePeriod = sysSettingsRes.data?.grace_period ?? 15;
 
