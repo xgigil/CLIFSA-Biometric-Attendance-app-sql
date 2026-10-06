@@ -11,16 +11,16 @@ const LEAVE_ERRORS = {
   unauthorized: "Unauthorized access. Admin privileges required.",
   overlap: "This employee already has a leave covering part of that range.",
   holidayConflict: "Cannot set leave on a holiday.",
-  holidayTypeNotAllowed: "Holiday is not a leave type. Use Set Holiday to create holidays.",
   setFailed: "Failed to set leave",
   setAllFailed: "Failed to set leave for all employees",
+  invalidLeaveType: "Invalid or inactive leave type.",
 } as const;
 
 type LeaveWritePayload = {
   employee_id: number;
   start_date: string;
   end_date: string;
-  leave_type?: string;
+  leave_type_id?: number;
   note?: string;
   created_by?: string | null;
 };
@@ -56,6 +56,19 @@ async function hasCompanyHolidayOverlap(
     return !!(existing && existing.length > 0);
 }
 
+async function resolveDefaultLeaveTypeId(
+  adminClient: Awaited<ReturnType<typeof createAdminClient>>
+): Promise<number | null> {
+  const { data, error } = await adminClient
+    .from("leave_type_policies")
+    .select("id")
+    .eq("name", "Vacation")
+    .eq("is_active", true);
+
+  if (error || !data?.length) return null;
+  return Number(data[0].id);
+}
+
 async function insertLeaveRow(
   adminClient: Awaited<ReturnType<typeof createAdminClient>>,
   payload: LeaveWritePayload
@@ -64,8 +77,8 @@ async function insertLeaveRow(
     employee_id: payload.employee_id,
     start_date: payload.start_date,
     end_date: payload.end_date,
-    leave_type: payload.leave_type || "vacation",
-    note: payload.note || null,
+    leave_type_id: payload.leave_type_id,
+    note: payload.note?.trim() || "",
     status: "approved",
     created_by: payload.created_by || null,
   });
@@ -80,7 +93,7 @@ export async function getLeavesForRangedAction(
     const db = await createClient();
     let query = db
       .from("employee_leaves")
-      .select("id, employee_id, start_date, end_date, leave_type, note")
+      .select("id, employee_id, start_date, end_date, leave_type_id, note")
       .eq("status", "approved")
       .lte("start_date", endDate)
       .gte("end_date", startDate);
@@ -88,9 +101,36 @@ export async function getLeavesForRangedAction(
     if (employeeId) query = query.eq("employee_id", employeeId);
 
     const { data, error } = await query;
-
     if (error) return { success: false, error: error.message };
-    return { success: true, data: data || [] };
+
+    const { data: types, error: typesError } = await db
+      .from("leave_type_policies")
+      .select("id, name");
+
+    if (typesError) return { success: false, error: typesError.message };
+
+    const nameById = new Map<number, string>(
+      (types || []).map((t: { id: number; name: string }) => [
+        Number(t.id),
+        t.name,
+      ])
+    );
+
+    const rows = (data || []).map(
+      (row: {
+        id: number;
+        employee_id: number;
+        start_date: string;
+        end_date: string;
+        leave_type_id: number;
+        note: string | null;
+      }) => ({
+        ...row,
+        leave_type_name: nameById.get(Number(row.leave_type_id)) || "Unknown",
+      })
+    );
+
+    return { success: true, data: rows };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch leaves" };
   }
@@ -100,7 +140,7 @@ export async function setLeaveAction(payload: {
   employee_id: number;
   start_date: string;
   end_date: string;
-  leave_type?: string;
+  leave_type_id?: number;
   note?: string;
 }) {
   try {
@@ -111,13 +151,16 @@ export async function setLeaveAction(payload: {
 
     const dateError = validDateRange(payload.start_date, payload.end_date);
     if (dateError) return { success: false, error: dateError };
-
-    if (payload.leave_type === "holiday") {
-        return { success: false, error: LEAVE_ERRORS.holidayTypeNotAllowed };
-    }
     
     const { data: { user }, } = await db.auth.getUser();
     const adminClient = await createAdminClient();
+
+    const leaveTypeId =
+      payload.leave_type_id ?? (await resolveDefaultLeaveTypeId(adminClient));
+  
+    if (!leaveTypeId) {
+      return { success: false, error: LEAVE_ERRORS.invalidLeaveType };
+    }
 
     if (await hasCompanyHolidayOverlap(adminClient, payload.start_date, payload.end_date)) {
         return { success: false, error: LEAVE_ERRORS.holidayConflict };
@@ -136,7 +179,7 @@ export async function setLeaveAction(payload: {
 
     const { error } = await insertLeaveRow(
       adminClient,
-      { ...payload, created_by: user?.id || null }
+      { ...payload, leave_type_id: leaveTypeId,created_by: user?.id || null }
     );
     if (error) return { success: false, error: error.message };
 
@@ -150,7 +193,7 @@ export async function setLeaveAction(payload: {
 export async function setLeaveForAllAction(payload: {
   start_date: string;
   end_date: string;
-  leave_type?: string;
+  leave_type_id?: number;
   note?: string;
 }) {
   try {
@@ -162,15 +205,17 @@ export async function setLeaveForAllAction(payload: {
     const dateError = validDateRange(payload.start_date, payload.end_date);
     if (dateError) return { success: false, error: dateError };
 
-
-    if (payload.leave_type === "holiday") {
-        return { success: false, error: LEAVE_ERRORS.holidayTypeNotAllowed };
-    }
-
     const {
       data: { user },
     } = await db.auth.getUser();
     const adminClient = await createAdminClient();
+
+    const leaveTypeId =
+      payload.leave_type_id ?? (await resolveDefaultLeaveTypeId(adminClient));
+
+    if (!leaveTypeId) {
+      return { success: false, error: LEAVE_ERRORS.invalidLeaveType };
+    }
 
     const { data: employees, error: empError } = await adminClient
       .from("employees")
@@ -205,7 +250,7 @@ export async function setLeaveForAllAction(payload: {
         employee_id: emp.employee_id,
         start_date: payload.start_date,
         end_date: payload.end_date,
-        leave_type: payload.leave_type || "vacation",
+        leave_type_id: leaveTypeId,
         note: payload.note,
         created_by: user?.id || null,
       });
@@ -242,5 +287,24 @@ export async function removeLeaveAction(id: number) {
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to remove leave" };
+  }
+}
+
+export async function getActiveLeaveTypesAction() {
+  try {
+    const db = await createClient();
+    const { data, error } = await db
+      .from("leave_type_policies")
+      .select("id, name, pool_id, is_active")
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+
+    if (error) return { success: false, error: error.message };
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || "Failed to fetch leave types",
+    };
   }
 }

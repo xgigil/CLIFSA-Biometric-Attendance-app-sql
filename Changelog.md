@@ -1,5 +1,74 @@
 # Changelog
 
+## [1.1.1] - Leave Application Phase 1 (database foundation + leave type policies)
+
+Phase 1 only. Direct Set Leave still creates `approved` leaves. Day rows and leave applications are not written yet (Phase 2+).
+
+### Added
+
+* **Leave balance pools and leave type policies.**
+
+  * New `leave_balance_pools` table with seeded allotments: Vacation (15), Application (15), Maternity (105), Paternity (7).
+  * New `leave_type_policies` table linking named leave types to pools (`Vacation`, `Sick Leave`, `Enrollment`, `Birthday`, `Leave w/Permission (w/o pay)`, `Other`, `Maternity Leave`, `Paternity Leave`).
+
+* **Leave day and application tables (schema only).**
+
+  * New `employee_leave_days` table for counted workday rows (`leave_id`, `leave_date`, `day_value`).
+  * New `leave_applications` table for future printed-form snapshots.
+  * Phase 1 does **not** insert into either table from Set Leave.
+
+* **Leave application form header columns on `system_settings`.**
+
+  * Added nullable `company_name`, `company_address`, `company_phones`, `company_email`, `form_title`, `signatory_name`, `signatory_title`.
+  * Seeded defaults for company name and form title; Settings UI still edits only work start / grace period.
+
+* **Manual Workbench migration script.**
+
+  * `mysql/schema_v1.1.1_migration_updates.sql` for existing databases (pools, types, `leave_type_id` backfill, drop text `leave_type`, new tables).
+
+### Updated
+
+* **`employee_leaves` schema.**
+
+  * Replaced text `leave_type` with required `leave_type_id` FK to `leave_type_policies`.
+  * Added review fields: `reviewed_by`, `reviewed_at`, `review_note`.
+  * Kept default `status = 'approved'` for direct Set Leave compatibility.
+  * Added status / date-range checks and status range index where applied.
+
+* **`mysql/schema.sql`**
+
+  * Source of truth updated for fresh installs to match the Phase 1 shape and seeds.
+
+* **`src/app/dashboard/leaves/actions.ts`**
+
+  * Payloads use `leave_type_id` instead of string `leave_type`.
+  * Added `getActiveLeaveTypesAction()` and default Vacation type resolution by name (not hard-coded ids).
+  * `getLeavesForRangedAction` returns `leave_type_name` via a policies map (no SQL joins).
+  * Removed holiday-as-leave-type string guards; holidays remain a separate table.
+  * Set Leave still inserts `status = 'approved'` and does not write day rows or applications.
+
+* **Leave dialogs**
+
+  * `set-leave-dialog.tsx` / `edit-day-dialog.tsx`: load active policies on open, submit `leave_type_id`, display `leave_type_name`.
+  * `remove-leave-dialog.tsx`: display `leave_type_name` instead of legacy text `leave_type`.
+
+* **Calendar display**
+
+  * `calendar/page.tsx`: selects `leave_type_id` and resolves names from `leave_type_policies`.
+  * `employee-attendance-calendar.tsx`: shows `leave_type_name` instead of hard-coded `LEAVE_TYPE_LABELS`.
+  * `attendance-processor.ts`: `LeaveRow` uses `leave_type_id` / `leave_type_name`.
+
+* **Tests**
+
+  * `mysql/schema.integrity.test.ts`: asserts new tables, FKs, settings header columns, and `leave_type_id`.
+  * `leaves/actions.test.ts`: payloads and insert expectations use `leave_type_id`; holiday-as-leave-type case replaced with invalid/unresolved leave type.
+
+### Notes / non-goals (still Phase 2+)
+
+* No `employee_leave_days` writes from Set Leave yet.
+* No leave application form, print, approve/reject, or balance UI.
+* Settings editors for pools, types, and form header wait for later phases.
+
 ## [1.0.4] - Leave and holiday details on the calendar
 
 ### Added

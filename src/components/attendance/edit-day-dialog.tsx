@@ -30,6 +30,7 @@ import {
   getLeavesForRangedAction,
   setLeaveAction,
   removeLeaveAction,
+  getActiveLeaveTypesAction,
 } from "@/app/dashboard/leaves/actions";
 import { getHolidaysForRangeAction } from "@/app/dashboard/holidays/actions";
 import type { RawBiometricLog } from "@/utils/attendance-processor";
@@ -56,16 +57,15 @@ interface LeaveRecord {
   employee_id: number;
   start_date: string;
   end_date: string;
-  leave_type?: string | null;
+  leave_type_id: number;
+  leave_type_name: string;
   note?: string | null;
 }
 
-const LEAVE_TYPES = [
-  { value: "vacation", label: "Vacation" },
-  { value: "sick", label: "Sick Leave" },
-  { value: "unpaid", label: "Unpaid Leave" },
-  { value: "other", label: "Other" },
-];
+interface LeaveTypeOption {
+  id: number;
+  name: string;
+}
 
 function formatShortDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -101,9 +101,11 @@ export function EditDayDialog({
   const [leave, setLeave] = React.useState<LeaveRecord | null>(null);
   const [removeLeaveStaged, setRemoveLeaveStaged] = React.useState(false);
   const [markLeave, setMarkLeave] = React.useState(false);
-  const [leaveType, setLeaveType] = React.useState("vacation");
+  const [leaveTypes, setLeaveTypes] = React.useState<LeaveTypeOption[]>([]);
+  const [leaveTypeId, setLeaveTypeId] = React.useState("");
   const [leaveNote, setLeaveNote] = React.useState("");
   const [fetchingLeave, setFetchingLeave] = React.useState(false);
+  const [fetchingLeaveTypes, setFetchingLeaveTypes] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [isCompanyHoliday, setIsCompanyHoliday] = React.useState(false);
   const [holidayNote, setHolidayNote] = React.useState<string | null>(null);
@@ -127,10 +129,38 @@ export function EditDayDialog({
     setLeave(null);
     setRemoveLeaveStaged(false);
     setMarkLeave(false);
-    setLeaveType("vacation");
+    setLeaveTypes([]);
+    setLeaveTypeId("");
     setLeaveNote("");
     setIsCompanyHoliday(false);
     setHolidayNote(null);
+
+    setFetchingLeaveTypes(true);
+    getActiveLeaveTypesAction()
+      .then((res) => {
+        if (res.success && res.data) {
+          const types = res.data.map((t: { id: number; name: string }) => ({
+            id: Number(t.id),
+            name: t.name,
+          }));
+
+          if (types.length === 0) {
+            setLeaveTypes([]);
+            setLeaveTypeId("");
+            toast.error("No active leave types configured");
+            return;
+          }
+
+          setLeaveTypes(types);
+          const vacation = types.find((t: LeaveTypeOption) => t.name === "Vacation");
+          setLeaveTypeId(String(vacation?.id ?? types[0]?.id ?? ""));
+        } else {
+          setLeaveTypes([]);
+          setLeaveTypeId("");
+          toast.error(res.error || "Failed to fetch leave types");
+        }
+      })
+      .finally(() => setFetchingLeaveTypes(false));
 
     if (!employeeId || !date) return;
 
@@ -200,6 +230,18 @@ export function EditDayDialog({
       return;
     }
 
+    if (!leave && markLeave) {
+      if (fetchingLeaveTypes || leaveTypes.length === 0 || !leaveTypeId) {
+        toast.error("Leave types are still loading");
+        return;
+      }
+      const parsedLeaveTypeId = parseInt(leaveTypeId, 10);
+      if (Number.isNaN(parsedLeaveTypeId)) {
+        toast.error("Please select a leave type");
+        return;
+      }
+    }
+
     setSaving(true);
     const failures: string[] = [];
 
@@ -233,11 +275,12 @@ export function EditDayDialog({
       const res = await removeLeaveAction(leave.id);
       if (!res.success) failures.push(res.error || "Failed to remove leave");
     } else if (!leave && markLeave) {
+      const parsedLeaveTypeId = parseInt(leaveTypeId, 10);
       const res = await setLeaveAction({
         employee_id: employeeId,
         start_date: date,
         end_date: date,
-        leave_type: leaveType,
+        leave_type_id: parsedLeaveTypeId,
         note: leaveNote.trim() || undefined,
       });
       if (!res.success) failures.push(res.error || "Failed to set leave");
@@ -252,6 +295,13 @@ export function EditDayDialog({
       failures.forEach((message) => toast.error(message));
     }
   };
+
+  const saveDisabled =
+    saving ||
+    fetchingLeave ||
+    (markLeave &&
+      !leave &&
+      (fetchingLeaveTypes || leaveTypes.length === 0 || !leaveTypeId));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -350,8 +400,8 @@ export function EditDayDialog({
                     <> &ndash; {formatShortDate(leave.end_date)}</>
                   )}
                 </div>
-                <div className="text-xs text-muted-foreground capitalize">
-                  {(leave.leave_type || "vacation").replace("_", " ")}
+                <div className="text-xs text-muted-foreground">
+                  {leave.leave_type_name || "Unknown"}
                   {leave.note ? ` \u2022 ${leave.note}` : ""}
                 </div>
 
@@ -397,10 +447,12 @@ export function EditDayDialog({
 
             {!fetchingLeave && isCompanyHoliday && (
               <div className="rounded-lg border border-slate-200 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/40 p-3 text-sm space-y-1">
-                <div className="font-medium text-foreground">{holidayNote ? `${holidayNote}` : "Holiday"}</div>
+                <div className="font-medium text-foreground">
+                  {holidayNote ? `${holidayNote}` : "Holiday"}
+                </div>
                 <div className="text-xs text-muted-foreground">
-                  This day is a holiday for all employees. Personal leave
-                  cannot be set here.
+                  This day is a holiday for all employees. Leave cannot be set
+                  here.
                 </div>
               </div>
             )}
@@ -424,27 +476,36 @@ export function EditDayDialog({
                       <Label htmlFor="day-leave-type" className="text-xs">
                         Leave type
                       </Label>
-                      <Select
-                        value={leaveType}
-                        onValueChange={setLeaveType}
-                        disabled={saving}
-                      >
-                        <SelectTrigger id="day-leave-type" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {LEAVE_TYPES.map((type) => (
-                            <SelectItem key={type.value} value={type.value}>
-                              {type.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {fetchingLeaveTypes ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                          <Spinner className="size-4" /> Loading leave types...
+                        </div>
+                      ) : (
+                        <Select
+                          value={leaveTypeId}
+                          onValueChange={setLeaveTypeId}
+                          disabled={saving || leaveTypes.length === 0}
+                        >
+                          <SelectTrigger id="day-leave-type" className="w-full">
+                            <SelectValue placeholder="Select leave type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {leaveTypes.map((type) => (
+                              <SelectItem
+                                key={type.id}
+                                value={String(type.id)}
+                              >
+                                {type.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="day-leave-note" className="text-xs">
-                        Note (optional)
+                        Reason
                       </Label>
                       <Input
                         id="day-leave-note"
@@ -458,8 +519,9 @@ export function EditDayDialog({
 
                     {willHavePunches && (
                       <p className="text-xs text-amber-600 dark:text-amber-400">
-                        This day has punches. Status will show as On Leave and will not count toward
-                        present days or logged hours; scan times stay on the record.
+                        This day has punches. Status will show as On Leave and
+                        will not count toward present days or logged hours; scan
+                        times stay on the record.
                       </p>
                     )}
                   </div>
@@ -481,7 +543,7 @@ export function EditDayDialog({
           <Button
             type="button"
             onClick={handleSave}
-            disabled={saving || fetchingLeave}
+            disabled={saveDisabled}
             className="cursor-pointer"
           >
             {saving ? <Spinner className="size-4 mr-2" /> : null}

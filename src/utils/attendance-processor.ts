@@ -23,7 +23,8 @@ export type LeaveRow = {
   employee_id: number;
   start_date: string;
   end_date: string;
-  leave_type?: string | null;
+  leave_type_id?: number | null;
+  leave_type_name?: string | null;
   note?: string | null;
 }
 
