@@ -240,6 +240,11 @@ export function EditDayDialog({
         toast.error("Please select a leave type");
         return;
       }
+
+      if (!leaveNote.trim()) {
+        toast.error("Reason for leave is required");
+        return;
+      }
     }
 
     setSaving(true);
@@ -281,7 +286,7 @@ export function EditDayDialog({
         start_date: date,
         end_date: date,
         leave_type_id: parsedLeaveTypeId,
-        note: leaveNote.trim() || undefined,
+        note: leaveNote.trim(),
       });
       if (!res.success) failures.push(res.error || "Failed to set leave");
     }
@@ -301,7 +306,7 @@ export function EditDayDialog({
     fetchingLeave ||
     (markLeave &&
       !leave &&
-      (fetchingLeaveTypes || leaveTypes.length === 0 || !leaveTypeId));
+      (fetchingLeaveTypes || leaveTypes.length === 0 || !leaveTypeId || !leaveNote.trim()));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

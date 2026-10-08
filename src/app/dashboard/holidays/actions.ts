@@ -10,8 +10,6 @@ import {
 const HOLIDAY_ERRORS = {
   unauthorized: "Unauthorized access. Admin privileges required.",
   holidayOverlap: "A company holiday already covers part of that range.",
-  leaveConflict:
-    "Cannot set holiday: one or more employees already have approved leave in this range. Remove those leaves first.",
   noteRequired: "Note is required to identify this holiday.",
   setFailed: "Failed to set holiday",
   removeFailed: "Failed to remove holiday",
@@ -24,28 +22,79 @@ async function hasHolidayOverlap(
   startDate: string,
   endDate: string
 ): Promise<boolean> {
-  const { data: existing } = await adminClient
+  const { data: existing, error } = await adminClient
     .from("company_holidays")
     .select("id")
     .lte("start_date", endDate)
     .gte("end_date", startDate);
 
+  if (error) throw new Error(error.message);
   return !!(existing && existing.length > 0);
 }
 
-async function hasApprovedLeaveOverlappingRange(
+type ConflictingLeave = {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  start_date: string;
+  end_date: string;
+  status: string;
+};
+
+async function findConflictingLeavesForHolidayRange(
   adminClient: Awaited<ReturnType<typeof createAdminClient>>,
   startDate: string,
   endDate: string
-): Promise<boolean> {
-  const { data: existing } = await adminClient
+): Promise<ConflictingLeave[]> {
+  const { data: leaves, error } = await adminClient
     .from("employee_leaves")
-    .select("id")
-    .eq("status", "approved")
+    .select("id, employee_id, start_date, end_date, status")
+    .in("status", ["pending", "approved"])
     .lte("start_date", endDate)
     .gte("end_date", startDate);
 
-  return !!(existing && existing.length > 0);
+  if (error) throw new Error(error.message);
+  if (!leaves?.length) return [];
+
+  const empIds = [...new Set(leaves.map((l: any) => l.employee_id))];
+  const { data: employees, error: empError } = await adminClient
+    .from("employees")
+    .select("employee_id, employee_name")
+    .in("employee_id", empIds);
+
+    if (empError) throw new Error(empError.message);
+
+  const nameById = new Map<number, string | null>(
+    (employees || []).map((e: any) => [Number(e.employee_id), e.employee_name])
+  );
+
+  return leaves
+    .map((l: any) => ({
+      id: Number(l.id),
+      employee_id: Number(l.employee_id),
+      employee_name: nameById.get(Number(l.employee_id)) ?? null,
+      start_date: String(l.start_date).substring(0, 10),
+      end_date: String(l.end_date).substring(0, 10),
+      status: String(l.status),
+    }))
+    .sort((a, b) => {
+      const an = a.employee_name || "";
+      const bn = b.employee_name || "";
+      if (an !== bn) return an.localeCompare(bn);
+      return a.start_date.localeCompare(b.start_date);
+    });
+}
+
+function formatLeaveConflictMessage(conflicts: ConflictingLeave[]): string {
+  const max = 5;
+  const parts = conflicts.slice(0, max).map((c) => {
+    const name = c.employee_name || `Employee #${c.employee_id}`;
+    return `${name} leave ${c.start_date}–${c.end_date} (${c.status})`;
+  });
+  let msg = `Cannot set holiday: conflicts with ${parts.join("; ")}.`;
+  const extra = conflicts.length - max;
+  if (extra > 0) msg = msg.replace(/\.$/, ` and ${extra} more.`);
+  return msg;
 }
 
 export async function getHolidaysForRangeAction(
@@ -108,14 +157,13 @@ export async function setHolidayAction(payload: {
       return { success: false, error: HOLIDAY_ERRORS.holidayOverlap };
     }
 
-    if (
-      await hasApprovedLeaveOverlappingRange(
-        adminClient,
-        payload.start_date,
-        payload.end_date
-      )
-    ) {
-      return { success: false, error: HOLIDAY_ERRORS.leaveConflict };
+    const conflicts = await findConflictingLeavesForHolidayRange(
+      adminClient,
+      payload.start_date,
+      payload.end_date
+    );
+    if (conflicts.length > 0) {
+      return { success: false, error: formatLeaveConflictMessage(conflicts) };
     }
 
     const { error } = await adminClient.from("company_holidays").insert({
