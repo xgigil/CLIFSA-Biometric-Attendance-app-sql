@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.1.2] - Leave Application Phase 2 (workday calculator, day rows, holiday guard)
+
+Phase 2 builds on Phase 1. Approach: **extend** existing Set Leave / Set Holiday flows.
+Direct Set Leave still creates `approved` leaves and does not create `leave_applications` rows.
+
+### Added
+
+* **Workday calculator** (`src/utils/leave-day-calculator.ts`)
+  * Builds counted leave day rows (skip weekends and company holidays; optional half-days).
+  * Unit tests for weekdays, weekends, holidays, half-days, and year-end spans.
+
+* **Day rows on Set Leave**
+  * Set Leave / Set Leave for All insert matching `employee_leave_days` in the same DB transaction as the leave header.
+  * Empty counted-day ranges (all weekends/holidays) still create the leave header for calendar range display.
+  * Reason / note is required on Set Leave (UI + server validation).
+
+* **Legacy backfill**
+  * One-shot script: `mysql/scripts/backfill-leave-days.mjs`
+    * Populates `employee_leave_days` for existing leaves that have zero day rows (skip weekends + company holidays; `day_value = 1.0`).
+    * Also backfills `reviewed_by` / `reviewed_at` from `created_by` / `created_at` where `reviewed_at IS NULL`.
+    * Idempotent: safe to re-run (`INSERT IGNORE` + unique `(leave_id, leave_date)`; reviewed UPDATE only touches null `reviewed_at`).
+    * Supports `--dry-run`. Not a migration runner — run manually from the project root after Phase 2 app code is deployed.
+  * Optional Workbench SQL: `mysql/schema_v1.1.2_optional.sql` for the same `reviewed_*` UPDATE if preferred over the script.
+
+### Updated
+
+* **Holiday conflict guard**
+  * Set Holiday blocked by overlapping `pending` or `approved` leave (not only approved).
+  * Error message names affected employees, dates, and status (capped list; fail-closed on query errors).
+
+* **Tests**
+  * Leave actions: day-row inserts, weekend skip, txn rollback, required note.
+  * Holiday actions: pending blocks; denied/cancelled do not; named error text; fail-closed on DB errors.
+
+### Notes / limitations (future improvements)
+
+* **Backfill:** Use `mysql/scripts/backfill-leave-days.mjs` once per database (dry-run first). It is one-shot and idempotent; re-running should not duplicate day rows or re-stamp already-reviewed leaves.
+* **`reviewed_*`:** Backfilled for legacy Set Leave rows via the script and/or `mysql/schema_v1.1.2_optional.sql`. App UI does not use these fields yet (approve/reject comes in a later phase).
+* **Calendar / attendance:** Still treat leave as a date **range** (`buildLeaveIndex` / `isOnLeave`), not `employee_leave_days`. Day rows are for counted workdays and future balances only — display does not switch to day rows in Phase 2.
+* Leave writes are hybrid: reads/guards still use the query-builder client; multi-table inserts use a raw MySQL transaction. A later cleanup could unify write paths on one style.
+* Set Leave still **rejects** any range that overlaps a company holiday entirely. The calculator can skip holiday dates inside a range; that path is mainly for backfill and later application flows unless the hard holiday block is relaxed.
+* No half-day toggle in Set Leave UI yet (calculator supports `0.5` for Phase 4+).
+* No leave application form, print, approve/reject, or `getLeaveBalance` UI (later phases).
+* No automated migration runner; schema/backfill remain manual Workbench / one-shot script.
+
 ## [1.1.1] - Leave Application Phase 1 (database foundation + leave type policies)
 
 Phase 1 only. Direct Set Leave still creates `approved` leaves. Day rows and leave applications are not written yet (Phase 2+).
