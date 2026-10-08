@@ -32,6 +32,7 @@ function makeChain(result: TableResult = { data: [], error: null }) {
     delete: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     neq: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
     lte: vi.fn().mockReturnThis(),
     gte: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
@@ -41,6 +42,62 @@ function makeChain(result: TableResult = { data: [], error: null }) {
   chain.then = (resolve: any, reject?: any) =>
     Promise.resolve(result).then(resolve, reject);
   return chain;
+}
+
+/**
+ * Like makeChain, but `.in(column, values)` actually filters the rows, the way
+ * the database would. This lets tests prove the code asks for the right
+ * statuses: rows the query should exclude never reach the action.
+ */
+function makeFilterableChain(rows: any[], error: { message: string } | null = null) {
+  let current = rows;
+  const chain = makeChain({ data: rows, error: null });
+  chain.in = vi.fn().mockImplementation((column: string, values: unknown[]) => {
+    current = current.filter((r) => values.includes(r[column]));
+    return chain;
+  });
+  chain.then = (resolve: any, reject?: any) =>
+    Promise.resolve(
+      error ? { data: null, error } : { data: current, error: null }
+    ).then(resolve, reject);
+  return chain;
+}
+
+type AdminTables = {
+  company_holidays?: any[];
+  employee_leaves?: any[];
+  employees?: any[];
+};
+
+/** Mocks the admin client; returns spies and every chain created per table. */
+function mockAdminClient(
+  tables: AdminTables = {},
+  errors: Partial<Record<keyof AdminTables, { message: string }>> = {}
+) {
+  const insertSpy = vi.fn().mockResolvedValue({ data: null, error: null });
+  const chains: Record<string, any[]> = {};
+  const fromSpy = vi.fn().mockImplementation((table: string) => {
+    const c = makeFilterableChain(
+      tables[table as keyof AdminTables] ?? [],
+      errors[table as keyof AdminTables] ?? null
+    );
+    if (table === "company_holidays") c.insert = insertSpy;
+    (chains[table] ||= []).push(c);
+    return c;
+  });
+  vi.mocked(createAdminClient).mockResolvedValue({ from: fromSpy } as any);
+  return { insertSpy, fromSpy, chains };
+}
+
+function leave(overrides: Partial<Record<string, any>> = {}) {
+  return {
+    id: 5,
+    employee_id: 100,
+    start_date: "2026-09-11",
+    end_date: "2026-09-12",
+    status: "approved",
+    ...overrides,
+  };
 }
 
 function mockMemberSession() {
@@ -82,14 +139,7 @@ describe("holiday actions", () => {
 
   it("should return failure if a non-admin tries to set a holiday", async () => {
     mockMemberSession();
-    const insertSpy = vi.fn();
-    vi.mocked(createAdminClient).mockResolvedValue({
-      from: vi.fn().mockImplementation(() => {
-        const c = makeChain();
-        c.insert = insertSpy;
-        return c;
-      }),
-    } as any);
+    const { insertSpy, fromSpy } = mockAdminClient();
 
     const res = await setHolidayAction({
       start_date: "2026-09-28",
@@ -100,6 +150,7 @@ describe("holiday actions", () => {
       success: false,
       error: "Unauthorized access. Admin privileges required.",
     });
+    expect(fromSpy).not.toHaveBeenCalled();
     expect(insertSpy).not.toHaveBeenCalled();
   });
 
@@ -147,14 +198,9 @@ describe("holiday actions", () => {
 
   it("should return failure if a holiday already covers that date range", async () => {
     mockAdminSession();
-    vi.mocked(createAdminClient).mockResolvedValue({
-      from: vi.fn().mockImplementation((table: string) => {
-        if (table === "company_holidays") {
-          return makeChain({ data: [{ id: 1 }], error: null });
-        }
-        return makeChain({ data: [], error: null });
-      }),
-    } as any);
+    const { insertSpy, chains } = mockAdminClient({
+      company_holidays: [{ id: 1 }],
+    });
 
     const res = await setHolidayAction({
       start_date: "2026-09-07",
@@ -165,43 +211,200 @@ describe("holiday actions", () => {
       success: false,
       error: "A company holiday already covers part of that range.",
     });
+    expect(chains.employee_leaves).toBeUndefined(); // stops before the leave check
+    expect(insertSpy).not.toHaveBeenCalled();
   });
 
-  it("should return failure if setting a holiday overlaps an employee's approved leave", async () => {
+  it("should return failure with the employee name, dates and status when an approved leave overlaps", async () => {
     mockAdminSession();
-    vi.mocked(createAdminClient).mockResolvedValue({
-      from: vi.fn().mockImplementation((table: string) => {
-        if (table === "company_holidays") {
-          return makeChain({ data: [], error: null });
-        }
-        if (table === "employee_leaves") {
-          return makeChain({ data: [{ id: 5 }], error: null });
-        }
-        return makeChain();
-      }),
-    } as any);
+    const { insertSpy, chains } = mockAdminClient({
+      employee_leaves: [leave({ status: "approved" })],
+      employees: [{ employee_id: 100, employee_name: "Alice Reyes" }],
+    });
 
     const res = await setHolidayAction({
       start_date: "2026-09-11",
       end_date: "2026-09-11",
       note: "Blocked",
     });
+
+    expect(res).toEqual({
+      success: false,
+      error:
+        "Cannot set holiday: conflicts with Alice Reyes leave 2026-09-11–2026-09-12 (approved).",
+    });
+    expect(chains.employee_leaves[0].in).toHaveBeenCalledWith("status", [
+      "pending",
+      "approved",
+    ]);
+    expect(chains.employees[0].in).toHaveBeenCalledWith("employee_id", [100]);
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("should block the holiday when an employee has an overlapping pending leave", async () => {
+    mockAdminSession();
+    const { insertSpy } = mockAdminClient({
+      employee_leaves: [leave({ id: 6, employee_id: 200, status: "pending" })],
+      employees: [{ employee_id: 200, employee_name: "Bob Santos" }],
+    });
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-11",
+      end_date: "2026-09-11",
+      note: "Blocked",
+    });
+
     expect(res.success).toBe(false);
-    expect(res.error).toContain("already have approved leave");
+    expect(res.error).toContain("Bob Santos");
+    expect(res.error).toContain("2026-09-11–2026-09-12");
+    expect(res.error).toContain("(pending)");
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("should allow the holiday when the only overlapping leaves are denied or cancelled", async () => {
+    mockAdminSession("admin-1");
+    const { insertSpy, chains } = mockAdminClient({
+      employee_leaves: [
+        leave({ id: 7, employee_id: 100, status: "denied" }),
+        leave({ id: 8, employee_id: 200, status: "cancelled" }),
+      ],
+      employees: [
+        { employee_id: 100, employee_name: "Alice Reyes" },
+        { employee_id: 200, employee_name: "Bob Santos" },
+      ],
+    });
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-11",
+      end_date: "2026-09-11",
+      note: "Founders Day",
+    });
+
+    expect(res).toEqual({ success: true });
+    // Only pending/approved are requested, so denied/cancelled never count.
+    expect(chains.employee_leaves[0].in).toHaveBeenCalledWith("status", [
+      "pending",
+      "approved",
+    ]);
+    expect(chains.employees).toBeUndefined(); // no conflicts, so no name lookup
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start_date: "2026-09-11",
+        end_date: "2026-09-11",
+        note: "Founders Day",
+        created_by: "admin-1",
+      })
+    );
+  });
+
+  it("should only report blocking leaves when blocking and non-blocking leaves overlap", async () => {
+    mockAdminSession();
+    const { insertSpy } = mockAdminClient({
+      employee_leaves: [
+        leave({ id: 7, employee_id: 100, status: "denied" }),
+        leave({ id: 8, employee_id: 200, status: "approved" }),
+      ],
+      employees: [
+        { employee_id: 100, employee_name: "Alice Reyes" },
+        { employee_id: 200, employee_name: "Bob Santos" },
+      ],
+    });
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-11",
+      end_date: "2026-09-11",
+      note: "Blocked",
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("Bob Santos");
+    expect(res.error).not.toContain("Alice Reyes");
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("should fall back to the employee number when no employee name is found", async () => {
+    mockAdminSession();
+    mockAdminClient({
+      employee_leaves: [leave({ employee_id: 300 })],
+      employees: [],
+    });
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-11",
+      end_date: "2026-09-11",
+      note: "Blocked",
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("Employee #300 leave 2026-09-11–2026-09-12");
+  });
+
+  it("should list at most five conflicts, sorted by name, and summarize the rest", async () => {
+    mockAdminSession();
+    const names = ["Frank", "Alice", "Carol", "Bob", "Erin", "Dave"];
+    mockAdminClient({
+      employee_leaves: names.map((_, i) =>
+        leave({ id: i + 1, employee_id: 100 + i })
+      ),
+      employees: names.map((n, i) => ({
+        employee_id: 100 + i,
+        employee_name: n,
+      })),
+    });
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-11",
+      end_date: "2026-09-11",
+      note: "Blocked",
+    });
+
+    expect(res.success).toBe(false);
+    // Alphabetical: Alice, Bob, Carol, Dave, Erin are shown; Frank is the "1 more".
+    expect(res.error).toContain("Alice");
+    expect(res.error).toContain("Erin");
+    expect(res.error).not.toContain("Frank");
+    expect(res.error).toMatch(/and 1 more\.$/);
+    expect(res.error!.indexOf("Alice")).toBeLessThan(res.error!.indexOf("Bob"));
+  });
+
+  it("should fail closed and not create the holiday if the leave conflict query errors", async () => {
+    mockAdminSession();
+    const { insertSpy } = mockAdminClient(
+      {},
+      { employee_leaves: { message: "Connection lost" } }
+    );
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-28",
+      end_date: "2026-09-28",
+      note: "Independence Day",
+    });
+
+    expect(res).toEqual({ success: false, error: "Connection lost" });
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("should fail closed and not create the holiday if the holiday overlap query errors", async () => {
+    mockAdminSession();
+    const { insertSpy } = mockAdminClient(
+      {},
+      { company_holidays: { message: "Connection lost" } }
+    );
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-28",
+      end_date: "2026-09-28",
+      note: "Independence Day",
+    });
+
+    expect(res).toEqual({ success: false, error: "Connection lost" });
+    expect(insertSpy).not.toHaveBeenCalled();
   });
 
   it("should successfully create one company holiday record when an admin sets a holiday", async () => {
     mockAdminSession("admin-1");
-    const insertSpy = vi.fn().mockResolvedValue({ data: null, error: null });
-    vi.mocked(createAdminClient).mockResolvedValue({
-      from: vi.fn().mockImplementation((table: string) => {
-        const c = makeChain({ data: [], error: null });
-        if (table === "company_holidays") {
-          c.insert = insertSpy;
-        }
-        return c;
-      }),
-    } as any);
+    const { insertSpy } = mockAdminClient();
 
     const res = await setHolidayAction({
       start_date: "2026-09-28",
@@ -247,15 +450,8 @@ describe("holiday actions", () => {
 
   it("should return failure if a second admin tries to set the same holiday range", async () => {
     mockAdminSession("admin-2");
-    // Simulate first admin already inserted — overlap check finds a row
-    vi.mocked(createAdminClient).mockResolvedValue({
-      from: vi.fn().mockImplementation((table: string) => {
-        if (table === "company_holidays") {
-          return makeChain({ data: [{ id: 99 }], error: null });
-        }
-        return makeChain({ data: [], error: null });
-      }),
-    } as any);
+    // Simulate first admin already inserted: overlap check finds a row
+    const { insertSpy } = mockAdminClient({ company_holidays: [{ id: 99 }] });
 
     const res = await setHolidayAction({
       start_date: "2026-09-28",
@@ -264,6 +460,7 @@ describe("holiday actions", () => {
     });
     expect(res.success).toBe(false);
     expect(res.error).toContain("already covers part of that range");
+    expect(insertSpy).not.toHaveBeenCalled();
   });
 
   it("should allow any signed-in user to read company holidays for a date range", async () => {

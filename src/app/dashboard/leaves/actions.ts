@@ -6,6 +6,11 @@ import {
   checkIsAdmin,
   revalidateAttendancePaths,
 } from "@/app/dashboard/attendance/admin";
+import { getPool } from "@/lib/db";
+import {
+  buildLeaveDayRows,
+  expandHolidayRanges,
+} from "@/utils/leave-day-calculator";
 
 const LEAVE_ERRORS = {
   unauthorized: "Unauthorized access. Admin privileges required.",
@@ -14,6 +19,7 @@ const LEAVE_ERRORS = {
   setFailed: "Failed to set leave",
   setAllFailed: "Failed to set leave for all employees",
   invalidLeaveType: "Invalid or inactive leave type.",
+  noteRequired: "Reason for leave is required.",
 } as const;
 
 type LeaveWritePayload = {
@@ -21,7 +27,7 @@ type LeaveWritePayload = {
   start_date: string;
   end_date: string;
   leave_type_id?: number;
-  note?: string;
+  note: string;
   created_by?: string | null;
 };
 
@@ -69,19 +75,72 @@ async function resolveDefaultLeaveTypeId(
   return Number(data[0].id);
 }
 
-async function insertLeaveRow(
+async function loadHolidayDateSet(
   adminClient: Awaited<ReturnType<typeof createAdminClient>>,
-  payload: LeaveWritePayload
-) {
-  return adminClient.from("employee_leaves").insert({
-    employee_id: payload.employee_id,
-    start_date: payload.start_date,
-    end_date: payload.end_date,
-    leave_type_id: payload.leave_type_id,
-    note: payload.note?.trim() || "",
-    status: "approved",
-    created_by: payload.created_by || null,
+  start_date: string,
+  end_date: string
+): Promise<Set<string>> {
+  const { data } = await adminClient
+  .from("company_holidays")
+  .select("start_date, end_date")
+  .lte("start_date", end_date)
+  .gte("end_date", start_date);
+
+  return expandHolidayRanges(data || []);
+}
+
+async function insertLeaveWithDayRows (payload: 
+  LeaveWritePayload & { holidayDates: Set<string> }
+): Promise<{ error: string | null }> {
+  const rows = buildLeaveDayRows({
+    startDate: payload.start_date,
+    endDate: payload.end_date,
+    halfDayDates: [],
+    holidayDates: payload.holidayDates,
   });
+
+  const pool = getPool();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [result] = await conn.query(
+      `INSERT INTO employee_leaves
+      (employee_id, start_date, end_date, leave_type_id, note, status, created_by)
+      VALUES (?, ?, ?, ?, ?, 'approved', ?)`,
+      [
+        payload.employee_id, 
+        payload.start_date, 
+        payload.end_date, 
+        payload.leave_type_id, 
+        payload.note.trim(), 
+        payload.created_by || null,
+      ]
+    );
+    
+    const leaveId = Number((result as { insertId: number }).insertId);
+
+    if (rows.length > 0) {
+      const values = rows.map((r) => [leaveId, r.leave_date, r.day_value]);
+      await conn.query(
+        `INSERT INTO employee_leave_days (leave_id, leave_date, day_value) VALUES ?`,
+        [values]
+      );
+    }
+
+    await conn.commit();
+    return { error: null };
+  } catch (err) {
+    try {
+      await conn.rollback();
+    } catch {
+
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: message };
+  } finally {
+    conn.release();
+  }
 }
 
 export async function getLeavesForRangedAction(
@@ -141,7 +200,7 @@ export async function setLeaveAction(payload: {
   start_date: string;
   end_date: string;
   leave_type_id?: number;
-  note?: string;
+  note: string;
 }) {
   try {
     const db = await createClient();
@@ -151,6 +210,11 @@ export async function setLeaveAction(payload: {
 
     const dateError = validDateRange(payload.start_date, payload.end_date);
     if (dateError) return { success: false, error: dateError };
+
+    const note = payload.note?.trim() ?? "";
+    if (!note) {
+      return { success: false, error: LEAVE_ERRORS.noteRequired };
+    }
     
     const { data: { user }, } = await db.auth.getUser();
     const adminClient = await createAdminClient();
@@ -177,11 +241,22 @@ export async function setLeaveAction(payload: {
       return { success: false, error: LEAVE_ERRORS.overlap };
     }
 
-    const { error } = await insertLeaveRow(
+    const holidayDates = await loadHolidayDateSet(
       adminClient,
-      { ...payload, leave_type_id: leaveTypeId,created_by: user?.id || null }
+      payload.start_date,
+      payload.end_date
     );
-    if (error) return { success: false, error: error.message };
+
+    const { error } = await insertLeaveWithDayRows({
+      employee_id: payload.employee_id,
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      leave_type_id: leaveTypeId,
+      note,
+      created_by: user?.id || null,
+      holidayDates,
+    });
+    if (error) return { success: false, error: error };
 
     revalidateAttendancePaths();
     return { success: true };
@@ -194,7 +269,7 @@ export async function setLeaveForAllAction(payload: {
   start_date: string;
   end_date: string;
   leave_type_id?: number;
-  note?: string;
+  note: string;
 }) {
   try {
     const db = await createClient();
@@ -204,6 +279,11 @@ export async function setLeaveForAllAction(payload: {
 
     const dateError = validDateRange(payload.start_date, payload.end_date);
     if (dateError) return { success: false, error: dateError };
+
+    const note = payload.note?.trim() ?? "";
+    if (!note) {
+      return { success: false, error: LEAVE_ERRORS.noteRequired };
+    }
 
     const {
       data: { user },
@@ -230,6 +310,12 @@ export async function setLeaveForAllAction(payload: {
         return { success: false, error: LEAVE_ERRORS.holidayConflict };
     }
 
+    const holidayDates = await loadHolidayDateSet(
+      adminClient,
+      payload.start_date,
+      payload.end_date
+    );
+
     let created = 0;
     let skipped = 0;
 
@@ -246,17 +332,18 @@ export async function setLeaveForAllAction(payload: {
         continue;
       }
 
-      const { error } = await insertLeaveRow(adminClient, {
+      const { error } = await insertLeaveWithDayRows({
         employee_id: emp.employee_id,
         start_date: payload.start_date,
         end_date: payload.end_date,
         leave_type_id: leaveTypeId,
-        note: payload.note,
+        note,
         created_by: user?.id || null,
+        holidayDates,
       });
-
+      
       if (error) {
-        return { success: false, error: error.message, created, skipped };
+        return { success: false, error, created, skipped };
       }
       created++;
     }

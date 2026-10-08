@@ -250,6 +250,10 @@ export function SetLeaveDialog({
       return toast.error("Please select a leave type");
     }
 
+    if (!note.trim()) {
+      return toast.error("Reason for leave is required");
+    }
+
     setLoading(true);
     try {
       if (selectedEmpId === "all") {
@@ -257,7 +261,7 @@ export function SetLeaveDialog({
           start_date: startDate,
           end_date: endDate,
           leave_type_id: parsedLeaveTypeId,
-          note: note.trim() || undefined,
+          note: note.trim(),
         });
 
         if (res.success) {
@@ -278,7 +282,7 @@ export function SetLeaveDialog({
           start_date: startDate,
           end_date: endDate,
           leave_type_id: parsedLeaveTypeId,
-          note: note.trim() || undefined,
+          note: note.trim(),
         });
 
         if (res.success) {
