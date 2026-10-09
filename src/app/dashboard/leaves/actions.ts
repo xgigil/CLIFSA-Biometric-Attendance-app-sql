@@ -3,7 +3,7 @@
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { validDateRange } from "@/app/dashboard/attendance/date-range";
 import {
-  checkIsAdmin,
+  checkIsAdminOrHr,
   revalidateAttendancePaths,
 } from "@/app/dashboard/attendance/admin";
 import { getPool } from "@/lib/db";
@@ -13,7 +13,7 @@ import {
 } from "@/utils/leave-day-calculator";
 
 const LEAVE_ERRORS = {
-  unauthorized: "Unauthorized access. Admin privileges required.",
+  unauthorized: "Unauthorized access. Admin or HR privileges required.",
   overlap: "This employee already has a leave covering part of that range.",
   holidayConflict: "Cannot set leave on a holiday.",
   setFailed: "Failed to set leave",
@@ -204,7 +204,7 @@ export async function setLeaveAction(payload: {
 }) {
   try {
     const db = await createClient();
-    if (!(await checkIsAdmin(db))) {
+    if (!(await checkIsAdminOrHr(db))) {
       return { success: false, error: LEAVE_ERRORS.unauthorized };
     }
 
@@ -273,7 +273,7 @@ export async function setLeaveForAllAction(payload: {
 }) {
   try {
     const db = await createClient();
-    if (!(await checkIsAdmin(db))) {
+    if (!(await checkIsAdminOrHr(db))) {
       return { success: false, error: LEAVE_ERRORS.unauthorized };
     }
 
@@ -358,7 +358,7 @@ export async function setLeaveForAllAction(payload: {
 export async function removeLeaveAction(id: number) {
   try {
     const db = await createClient();
-    if (!(await checkIsAdmin(db))) {
+    if (!(await checkIsAdminOrHr(db))) {
       return { success: false, error: LEAVE_ERRORS.unauthorized };
     }
 
