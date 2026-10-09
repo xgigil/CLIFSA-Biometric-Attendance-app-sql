@@ -35,6 +35,7 @@ import {
 import { AddAttendanceDialog } from "@/components/attendance/add-attendance-dialog";
 import { SetLeaveDialog } from "@/components/attendance/set-leave-dialog";
 import { SetHolidayDialog } from "@/components/attendance/set-holiday-dialog";
+import { isAdminOrHrRole } from "@/app/dashboard/attendance/admin";
 
 const data = {
   navMain: [
@@ -93,6 +94,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
   const [isAddAttendanceOpen, setIsAddAttendanceOpen] = React.useState(false);
   const [isSetLeaveOpen, setIsSetLeaveOpen] = React.useState(false);
   const [isSetHolidayOpen, setIsSetHolidayOpen] = React.useState(false);
+  const isAdmin = user?.role === "admin";
+  const canManageLeaveandHolidays = isAdminOrHrRole(user?.role);
 
   const actionButtonClassName =
     "w-full h-10 gap-2 rounded-full border border-border bg-background font-semibold text-xs justify-start px-4 hover:!bg-gray-100 hover:!text-gray-700 dark:hover:!bg-gray-100 dark:hover:!text-gray-700 aria-expanded:!bg-gray-100 aria-expanded:!text-gray-700 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:h-9 items-center flex";
@@ -119,8 +122,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
 
       <SidebarContent className="">
 
-        {user?.role === "admin" && (
-          <>
+        {isAdmin && (
             <div className="px-2.5 py-2 group-data-[collapsible=icon]:px-1.5 group-data-[collapsible=icon]:py-1.5 animate-fade-in group-data-[collapsible=icon]:my-2">
               <Button
                 className="w-full h-10 gap-2 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs justify-start px-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:h-9 group-data-[collapsible=icon]:items-center items-center align-center flex"
@@ -131,8 +133,10 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
                 <span className="group-data-[collapsible=icon]:hidden">Add Attendance</span>
               </Button>
             </div>
+        )}
 
-            <div className="px-2.5 pb-2 group-data-[collapsible=icon]:px-1.5">
+        {canManageLeaveandHolidays && (
+            <div className="px-2.5 py-2 group-data-[collapsible=icon]:px-1.5 group-data-[collapsible=icon]:py-1.5 animate-fade-in group-data-[collapsible=icon]:my-2">
               {isIconCollapsed ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -206,7 +210,6 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
                 </Collapsible>
               )}
             </div>
-          </>
         )}
         <NavMain items={data.navMain} />
       </SidebarContent>

@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.1.3] - Leave Application Phase 3 (Admin or HR permissions)
+
+Phase 3 adds permission helpers so leave and holiday management accept **Admin or HR**.
+Admin still owns Settings, user management, and attendance CRUD. Assigning the HR role in
+Settings UI is deferred to Phase 8; until then promote a user with SQL (`profiles.role = 'hr'`)
+to exercise the HR path.
+
+### Added
+
+* **Role helpers** (`src/app/dashboard/attendance/admin.ts`)
+  * `AppRole`, `isAdminRole`, `isAdminOrHrRole`, `canManageLeaveandHolidays`.
+  * `checkIsAdminOrHr` for leave/holiday write gates; `checkIsAdmin` unchanged for Admin-only paths.
+  * Unit tests covering admin, hr, member, signed-out, and null profile.
+
+### Updated
+
+* **Leave / holiday writes**
+  * `setLeaveAction`, `setLeaveForAllAction`, `removeLeaveAction`, `setHolidayAction`, and
+    `removeHolidayAction` use `checkIsAdminOrHr`.
+  * Unauthorized message: `"Unauthorized access. Admin or HR privileges required."`
+
+* **Sidebar chrome** (`src/components/app-sidebar.tsx`)
+  * Add Attendance remains Admin-only.
+  * Set Leave / Set Holiday shown for Admin or HR via `isAdminOrHrRole`.
+  * Layout already passes `profiles.role` into the sidebar (no layout change).
+
+* **Tests**
+  * Leave and holiday action tests updated for the new unauthorized copy; HR-allowed cases as covered.
+
+### Notes / limitations (future improvements)
+
+* **HR role assignment UI:** Settings still only offers Admin / Member (Phase 8).
+* **HR org views:** Dashboard / calendar / site-header day nav stay Admin-only until later phases.
+* **Attendance CRUD** stays Admin-only.
+* No schema migration — `profiles.role` is already `VARCHAR(32)` and accepts `hr`.
+
 ## [1.1.2] - Leave Application Phase 2 (workday calculator, day rows, holiday guard)
 
 Phase 2 builds on Phase 1. Approach: **extend** existing Set Leave / Set Holiday flows.

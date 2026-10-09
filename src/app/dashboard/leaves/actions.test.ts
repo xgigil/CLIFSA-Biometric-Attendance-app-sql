@@ -38,6 +38,7 @@ function makeChain(result: TableResult = { data: [], error: null }) {
     delete: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     neq: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
     lte: vi.fn().mockReturnThis(),
     gte: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
@@ -121,6 +122,24 @@ function mockCleanAdminClient() {
   } as any);
 }
 
+/** Session whose profiles.role is "hr" (Step 2: HR may write leaves). */
+function mockHrSession(userId = "hr-1") {
+  vi.mocked(createClient).mockResolvedValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: { user: { id: userId } },
+        error: null,
+      }),
+    },
+    from: vi.fn().mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return makeChain({ data: { role: "hr" }, error: null });
+      }
+      return makeChain({ data: [], error: null });
+    }),
+  } as any);
+}
+
 describe("leave actions", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -139,7 +158,8 @@ describe("leave actions", () => {
     });
     expect(res).toEqual({
       success: false,
-      error: "Unauthorized access. Admin privileges required.",
+      // Updated (Step 2): gate is now Admin or HR
+      error: "Unauthorized access. Admin or HR privileges required.",
     });
     expect(getPool).not.toHaveBeenCalled();
   });
@@ -156,8 +176,11 @@ describe("leave actions", () => {
     } as any);
 
     const res = await removeLeaveAction(1);
-    expect(res.success).toBe(false);
-    expect(res.error).toContain("Unauthorized");
+    expect(res).toEqual({
+      success: false,
+      // Updated (Step 2): gate is now Admin or HR
+      error: "Unauthorized access. Admin or HR privileges required.",
+    });
     expect(deleteSpy).not.toHaveBeenCalled();
   });
 
@@ -504,6 +527,116 @@ describe("leave actions", () => {
     expect(fromSpy).toHaveBeenCalledWith("employee_leaves");
     expect(deleteSpy).toHaveBeenCalled();
     expect(eqSpy).toHaveBeenCalledWith("id", 42);
+    expect(getPool).not.toHaveBeenCalled();
+  });
+
+  it("should allow an HR user to set leave", async () => {
+    mockHrSession("hr-1");
+    mockCleanAdminClient();
+    const { conn, query } = mockPoolTransaction(42);
+
+    const res = await setLeaveAction({
+      employee_id: 100,
+      start_date: "2026-09-21", // Monday
+      end_date: "2026-09-22", // Tuesday
+      leave_type_id: 1,
+      note: "Personal matters",
+    });
+    expect(res).toEqual({ success: true });
+
+    expect(conn.beginTransaction).toHaveBeenCalledTimes(1);
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+    expect(conn.rollback).not.toHaveBeenCalled();
+    expect(sqlOf(query, 0)).toContain("INSERT INTO employee_leaves");
+    expect(query.mock.calls[0][1]).toEqual([
+      100,
+      "2026-09-21",
+      "2026-09-22",
+      1,
+      "Personal matters",
+      "hr-1",
+    ]);
+    expect(sqlOf(query, 1)).toContain("INSERT INTO employee_leave_days");
+    expect(query.mock.calls[1][1]).toEqual([
+      [
+        [42, "2026-09-21", 1],
+        [42, "2026-09-22", 1],
+      ],
+    ]);
+  });
+
+  it("should allow an HR user to set leave for all employees", async () => {
+    mockHrSession("hr-1");
+    vi.mocked(createAdminClient).mockResolvedValue({
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
+        if (table === "employees") {
+          return makeChain({ data: [{ employee_id: 200 }], error: null });
+        }
+        return makeChain({ data: [], error: null });
+      }),
+    } as any);
+    const { conn, query } = mockPoolTransaction(42);
+
+    const res = await setLeaveForAllAction({
+      start_date: "2026-09-21",
+      end_date: "2026-09-22",
+      leave_type_id: 1,
+      note: "Team offsite",
+    });
+    expect(res).toMatchObject({ success: true, created: 1, skipped: 0 });
+    expect(conn.commit).toHaveBeenCalledTimes(1);
+    expect(sqlOf(query, 0)).toContain("INSERT INTO employee_leaves");
+    expect(query.mock.calls[0][1][0]).toBe(200);
+    expect(query.mock.calls[0][1][5]).toBe("hr-1");
+  });
+
+  it("should allow an HR user to remove leave", async () => {
+    mockHrSession();
+    const eqSpy = vi.fn().mockResolvedValue({ data: null, error: null });
+    const deleteSpy = vi.fn().mockReturnThis();
+    const fromSpy = vi.fn().mockImplementation(() => {
+      const c = makeChain();
+      c.delete = deleteSpy;
+      c.eq = eqSpy;
+      return c;
+    });
+    vi.mocked(createAdminClient).mockResolvedValue({ from: fromSpy } as any);
+
+    const res = await removeLeaveAction(42);
+    expect(res.success).toBe(true);
+    expect(fromSpy).toHaveBeenCalledWith("employee_leaves");
+    expect(deleteSpy).toHaveBeenCalled();
+    expect(eqSpy).toHaveBeenCalledWith("id", 42);
+  });
+
+  it("should still apply leave rules to HR (holiday overlap blocks the leave)", async () => {
+    mockHrSession();
+    vi.mocked(createAdminClient).mockResolvedValue({
+      from: vi.fn().mockImplementation((table: string) => {
+        if (table === "leave_type_policies") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
+        if (table === "company_holidays") {
+          return makeChain({ data: [{ id: 1 }], error: null });
+        }
+        return makeChain({ data: [], error: null });
+      }),
+    } as any);
+
+    const res = await setLeaveAction({
+      employee_id: 100,
+      start_date: "2026-09-07",
+      end_date: "2026-09-07",
+      leave_type_id: 1,
+      note: "Personal matters",
+    });
+    expect(res).toEqual({
+      success: false,
+      error: "Cannot set leave on a holiday.",
+    });
     expect(getPool).not.toHaveBeenCalled();
   });
 

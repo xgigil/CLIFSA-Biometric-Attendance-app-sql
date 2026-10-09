@@ -3,12 +3,12 @@
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { validDateRange } from "@/app/dashboard/attendance/date-range";
 import {
-  checkIsAdmin,
+  checkIsAdminOrHr,
   revalidateAttendancePaths,
 } from "@/app/dashboard/attendance/admin";
 
 const HOLIDAY_ERRORS = {
-  unauthorized: "Unauthorized access. Admin privileges required.",
+  unauthorized: "Unauthorized access. Admin or HR privileges required.",
   holidayOverlap: "A company holiday already covers part of that range.",
   noteRequired: "Note is required to identify this holiday.",
   setFailed: "Failed to set holiday",
@@ -77,7 +77,7 @@ async function findConflictingLeavesForHolidayRange(
       end_date: String(l.end_date).substring(0, 10),
       status: String(l.status),
     }))
-    .sort((a, b) => {
+    .sort((a: ConflictingLeave, b: ConflictingLeave) => {
       const an = a.employee_name || "";
       const bn = b.employee_name || "";
       if (an !== bn) return an.localeCompare(bn);
@@ -130,7 +130,7 @@ export async function setHolidayAction(payload: {
 }) {
   try {
     const db = await createClient();
-    if (!(await checkIsAdmin(db))) {
+    if (!(await checkIsAdminOrHr(db))) {
       return { success: false, error: HOLIDAY_ERRORS.unauthorized };
     }
 
@@ -192,7 +192,7 @@ export async function removeHolidayAction(id: number) {
     }
 
     const db = await createClient();
-    if (!(await checkIsAdmin(db))) {
+    if (!(await checkIsAdminOrHr(db))) {
       return { success: false, error: HOLIDAY_ERRORS.unauthorized };
     }
 
