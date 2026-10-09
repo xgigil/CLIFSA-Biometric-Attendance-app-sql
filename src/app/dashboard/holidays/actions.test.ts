@@ -131,6 +131,24 @@ function mockAdminSession(userId = "admin-1") {
   } as any);
 }
 
+/** Session whose profiles.role is "hr" (Step 2: HR may write holidays). */
+function mockHrSession(userId = "hr-1") {
+  vi.mocked(createClient).mockResolvedValue({
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: { user: { id: userId } },
+        error: null,
+      }),
+    },
+    from: vi.fn().mockImplementation((table: string) => {
+      if (table === "profiles") {
+        return makeChain({ data: { role: "hr" }, error: null });
+      }
+      return makeChain({ data: [], error: null });
+    }),
+  } as any);
+}
+
 describe("holiday actions", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -148,7 +166,8 @@ describe("holiday actions", () => {
     });
     expect(res).toEqual({
       success: false,
-      error: "Unauthorized access. Admin privileges required.",
+      // Updated (Step 2): gate is now Admin or HR
+      error: "Unauthorized access. Admin or HR privileges required.",
     });
     expect(fromSpy).not.toHaveBeenCalled();
     expect(insertSpy).not.toHaveBeenCalled();
@@ -157,8 +176,11 @@ describe("holiday actions", () => {
   it("should return failure if a non-admin tries to remove a holiday", async () => {
     mockMemberSession();
     const res = await removeHolidayAction(1);
-    expect(res.success).toBe(false);
-    expect(res.error).toContain("Unauthorized");
+    expect(res).toEqual({
+      success: false,
+      // Updated (Step 2): gate is now Admin or HR
+      error: "Unauthorized access. Admin or HR privileges required.",
+    });
   });
 
   it("should return failure if the holiday end date is before the start date", async () => {
@@ -399,6 +421,61 @@ describe("holiday actions", () => {
     });
 
     expect(res).toEqual({ success: false, error: "Connection lost" });
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("should allow an HR user to set a holiday", async () => {
+    mockHrSession("hr-1");
+    const { insertSpy } = mockAdminClient();
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-28",
+      end_date: "2026-09-28",
+      note: "Independence Day",
+    });
+    expect(res).toEqual({ success: true });
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    expect(insertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start_date: "2026-09-28",
+        end_date: "2026-09-28",
+        note: "Independence Day",
+        created_by: "hr-1",
+      })
+    );
+  });
+
+  it("should allow an HR user to remove a holiday", async () => {
+    mockHrSession();
+    const eqSpy = vi.fn().mockResolvedValue({ data: null, error: null });
+    vi.mocked(createAdminClient).mockResolvedValue({
+      from: vi.fn().mockImplementation(() => {
+        const c = makeChain();
+        c.delete = vi.fn().mockReturnThis();
+        c.eq = eqSpy;
+        return c;
+      }),
+    } as any);
+
+    const res = await removeHolidayAction(7);
+    expect(res.success).toBe(true);
+    expect(eqSpy).toHaveBeenCalledWith("id", 7);
+  });
+
+  it("should still apply holiday rules to HR (overlapping leave blocks the holiday)", async () => {
+    mockHrSession();
+    const { insertSpy } = mockAdminClient({
+      employee_leaves: [leave({ status: "approved" })],
+      employees: [{ employee_id: 100, employee_name: "Alice Reyes" }],
+    });
+
+    const res = await setHolidayAction({
+      start_date: "2026-09-11",
+      end_date: "2026-09-11",
+      note: "Blocked",
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("Alice Reyes");
     expect(insertSpy).not.toHaveBeenCalled();
   });
 
