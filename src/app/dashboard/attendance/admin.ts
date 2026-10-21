@@ -1,19 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import {
+  type AppRole,
+  isAdminRole,
+  isAdminOrHrRole,
+  canManageLeaveandHolidays,
+} from "./roles";
 
-export type AppRole = "admin" | "hr" | "member";
-
-export function isAdminRole(role: string | null | undefined): boolean {
-  return role === "admin";
-}
-
-export function isAdminOrHrRole(role: string | null | undefined): boolean {
-  return role === "admin" || role === "hr";
-}
-
-export function canManageLeaveandHolidays(role: string | null | undefined): boolean {
-  return isAdminOrHrRole(role);
-}
+export type { AppRole };
+export { isAdminRole, isAdminOrHrRole, canManageLeaveandHolidays };
 
 type Db = Awaited<ReturnType<typeof createClient>>;
 

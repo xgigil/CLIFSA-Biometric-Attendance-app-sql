@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/collapsible";
 import {
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
@@ -20,8 +21,10 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 
 export function NavMain({
+  label,
   items,
 }: {
+  label?: string;
   items: {
     title: string;
     url: string;
@@ -37,9 +40,16 @@ export function NavMain({
 
   return (
     <SidebarGroup>
+      {label ? (
+        <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
+          {label}
+        </SidebarGroupLabel>
+      ) : null}
       <SidebarMenu className="gap-1.25 mx-1 w-auto">
         {items.map((item) => {
-          const isActive = pathname === item.url;
+          const isActive =
+            pathname === item.url ||
+            (item.url !== "/dashboard" && pathname.startsWith(item.url));
           return (
             <Collapsible
               key={item.title}

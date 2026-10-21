@@ -31,50 +31,61 @@ import {
   IconPlus,
   IconFlag,
   IconCalendarEvent,
+  IconFileText,
 } from "@tabler/icons-react";
 import { AddAttendanceDialog } from "@/components/attendance/add-attendance-dialog";
 import { SetLeaveDialog } from "@/components/attendance/set-leave-dialog";
 import { SetHolidayDialog } from "@/components/attendance/set-holiday-dialog";
-import { isAdminOrHrRole } from "@/app/dashboard/attendance/admin";
+import { isAdminOrHrRole } from "@/app/dashboard/attendance/roles";
+
+const iconClass = { width: "1rem", height: "1rem" } as const;
 
 const data = {
-  navMain: [
+  navGroups: [
     {
-      title: "Dashboard",
-      url: "/dashboard",
-      icon: (
-        <IconDashboard
-          style={{ width: "1rem", height: "1rem" }}
-          strokeWidth={2.5}
-        />
-      ),
+      label: "Overview",
+      items: [
+        {
+          title: "Dashboard",
+          url: "/dashboard",
+          icon: <IconDashboard style={iconClass} strokeWidth={2.5} />,
+        },
+      ],
     },
     {
-      title: "Calendar",
-      url: "/dashboard/calendar",
-      icon: (
-        <IconCalendar
-          style={{ width: "1rem", height: "1rem" }}
-          strokeWidth={2.5}
-        />
-      ),
+      label: "Attendance",
+      items: [
+        {
+          title: "Daily Logs",
+          url: "/dashboard/analytics",
+          icon: <IconListDetails style={iconClass} strokeWidth={2.5} />,
+        },
+        {
+          title: "Calendar",
+          url: "/dashboard/calendar",
+          icon: <IconCalendar style={iconClass} strokeWidth={2.5} />,
+        },
+      ],
     },
     {
-      title: "Daily Logs",
-      url: "/dashboard/analytics",
-      icon: (
-        <IconListDetails
-          style={{ width: "1rem", height: "1rem" }}
-          strokeWidth={2.5}
-        />
-      ),
+      label: "Leave Management",
+      items: [
+        {
+          title: "Leave Requests",
+          url: "/dashboard/leave-requests",
+          icon: <IconFileText style={iconClass} strokeWidth={2.5} />,
+        },
+      ],
     },
     {
-      title: "Settings",
-      url: "/dashboard/settings",
-      icon: (
-        <Settings2 style={{ width: "1rem", height: "1rem" }} strokeWidth={2.5} />
-      ),
+      label: "System",
+      items: [
+        {
+          title: "Settings",
+          url: "/dashboard/settings",
+          icon: <Settings2 style={iconClass} strokeWidth={2.5} />,
+        },
+      ],
     },
   ],
 };
@@ -211,7 +222,9 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
               )}
             </div>
         )}
-        <NavMain items={data.navMain} />
+        {data.navGroups.map((group) => (
+          <NavMain key={group.label} label={group.label} items={group.items} />
+        ))}
       </SidebarContent>
       <SidebarFooter className="p-3 group-data-[collapsible=icon]:p-2">
         {user && <NavUser user={user} />}

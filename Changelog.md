@@ -1,5 +1,88 @@
 # Changelog
 
+## [1.1.4] - Leave Application Phase 4 (apply, list, detail, print)
+
+Phase 4 adds a separate **Leave Requests** area where employees file leave applications and
+Admin/HR file them on an employee's behalf. Applications are created as `pending`. They do not
+affect the calendar, attendance, or balances until approval (Phase 5).
+**Set Leave is unchanged** and stays a separate Admin/HR tool that creates `approved` leaves
+with no form row.
+
+### Added
+
+* **Leave Requests pages** (`src/app/dashboard/leave-requests/`)
+  * List (`/dashboard/leave-requests`): pending applications first and highlighted,
+    status filter, Admin/HR employee filter, "Apply for Leave" button.
+  * Apply (`/new`): editable name, read-only date filed, position / department, leave type
+    checklist from active types, required reason, From / To dates, half-day toggle with a
+    per-day tick list when the range has 2+ workdays, live Total # of Days, and live
+    Beginning Balance / Leave Taken / Allowable Leave before submit.
+    Admin/HR pick any employee; a Member is locked to their linked employee.
+  * Detail (`/[id]`): read-only form data, counted days, balance snapshot. Admin/HR can delete
+    a pending application (inline confirm; Back and Print are hidden while confirming).
+  * Print (`/[id]/print`): follows the paper form: CLIFSA logo and header with the blue/gold bar
+    beside the logo, LN#, name / position / date filed / dept, **only the selected leave type**
+    (ticked), Personal Action, Leave Request Date, reason, signature lines. Two identical copies
+    on one A4 sheet; sidebar and buttons are hidden when printing.
+
+* **Server actions, organized by job** (`src/app/dashboard/leave-requests/`)
+  * `actions.ts` (writes): `submitLeaveApplicationAction` writes the `pending` leave, its
+    `employee_leave_days` rows, and the `leave_applications` row (with balance snapshots)
+    in one transaction; `previewLeaveDaysAction` returns read-only totals and balances for the
+    form; `deletePendingApplicationAction` removes a pending application.
+  * `read-actions.ts` (reads): `listLeaveApplicationAction`, `getLeaveApplicationDetailAction`.
+  * `_lib/` (shared, not a route): `errors.ts` (messages and statuses), `caller.ts` (signed-in
+    user, role, linked employee, access rule), `queries.ts` (overlap, holiday dates, active
+    type), `insert-application.ts` (the transaction).
+  * Members can only act for their own linked employee; Admin/HR can act for anyone.
+    Only Admin/HR can delete, and only while the application is `pending`.
+  * Each later phase adds its actions in a new file (review, balances) that reuses `_lib/`.
+
+* **Leave balance helper** (`src/utils/leave-balance.ts`)
+  * `getLeaveBalance`, `getLeaveBalanceForLeaveType`, `resolvePoolIdForLeaveType`,
+    `computeRemainingBalance`, `computeApplicationSnapshots`.
+  * Remaining = pool allotment - approved day rows dated in the calendar year.
+    Pending, denied, and cancelled leaves do not reduce the balance. Negative remaining
+    is allowed so over-use stays visible.
+
+* **Sidebar:** "Leave Requests" entry in the main menu for all signed-in roles.
+
+### Updated
+
+* **Role helpers** moved to `src/app/dashboard/attendance/roles.ts` (no server-only imports,
+  safe for client components). `admin.ts` re-exports them, so existing imports keep working.
+* **`src/components/app-sidebar.tsx`:** added Leave Requests. Set Leave / Set Holiday remain
+  in the separate Admin/HR "Leave & Holiday" group.
+
+### Tests
+
+* `src/utils/leave-balance.test.ts`: allotment, usage, year bounds, snapshots, error cases.
+* `leave-requests/actions.test.ts`: required reason, overlap with pending or approved,
+  half-day rows and `leave_taken` snapshot, Member vs Admin/HR, transaction write and rollback,
+  delete rules, list scoping, detail ownership.
+* `leave-requests/[id]/print/page.test.tsx`: selected type only, two copies, snapshot values.
+
+### Notes / limitations (future improvements)
+
+* **Holidays:** unlike Set Leave, applications do **not** reject a range that touches a company
+  holiday. Holidays inside the range are skipped by the day calculator and not charged.
+  A range with no counted workdays (weekends / holidays only) is rejected.
+* **Overlap:** applications are blocked by existing `pending` **or** `approved` leaves
+  (Set Leave still checks `approved` only). The check runs once up front and again inside the
+  transaction under a row lock on the employee, so simultaneous submits for the same dates
+  cannot both succeed. The apply-form preview does not run the overlap check, so an overlap
+  error appears on submit.
+* **Year-spanning leaves:** `beginning_balance` is taken from the start year, while
+  `leave_taken` covers all days. Day rows still charge each year correctly.
+* **Form header:** print reads `system_settings` and falls back to the paper form's text only
+  when a column is `NULL`. Existing databases seeded with `company_name = 'CLIFSA'` need
+  an `UPDATE` to show the full name. The editor UI comes in Phase 6.
+* **Logo:** served from `public/clifsa-logo.png`.
+* **Position / department** are typed on the form (no employee columns until Phase 8).
+* **Pending applications cannot be edited**; delete and re-apply instead.
+* **Not yet:** approve / reject (Phase 5), balances on the dashboard (Phase 5), Settings
+  editors for pools, types, and header (Phase 6), Set Leave polish (Phase 7).
+
 ## [1.1.3] - Leave Application Phase 3 (Admin or HR permissions)
 
 Phase 3 adds permission helpers so leave and holiday management accept **Admin or HR**.
