@@ -1,4 +1,4 @@
-# Phase 1–2 migration (live database)
+# Leave Application migration (live database)
 
 Upgrade an existing live DB. Do **not** recreate from `mysql/schema.sql`.
 
