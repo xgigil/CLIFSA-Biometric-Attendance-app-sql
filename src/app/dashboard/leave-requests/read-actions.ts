@@ -3,10 +3,11 @@
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { APPLICATION_ERRORS, APPLICATION_STATUSES } from "./_lib/errors";
 import { getCallerContext, checkEmployeeAccess } from "./_lib/caller";
+import { getLeaveBalance } from "@/utils/leave-balance";
 
 // Lists leave applications. Members see their own; Admin/HR can see all.
 export async function listLeaveApplicationAction(filters?: {
-  status?: string;
+  status?: string | string[];
   employeeId?: number;
 }) {
   try {
@@ -25,10 +26,22 @@ export async function listLeaveApplicationAction(filters?: {
       scopeEmployeeId = Number(ctx.employeeId);
     }
 
-    if (
-      filters?.status &&
-      !(APPLICATION_STATUSES as readonly string[]).includes(filters.status)
-    ) {
+    // Turn whatever we received into a clean list of statuses.
+    // Examples: "pending" -> ["pending"], "pending,denied" -> ["pending", "denied"],
+    // nothing -> [] (which means "show every status").
+    const rawStatuses = Array.isArray(filters?.status)
+      ? filters.status
+      : filters?.status
+        ? filters.status.split(",")
+        : [];
+    const requestedStatuses = [
+      ...new Set(rawStatuses.map((s) => s.trim()).filter(Boolean)),
+    ];
+
+    const hasInvalidStatus = requestedStatuses.some(
+      (s) => !(APPLICATION_STATUSES as readonly string[]).includes(s)
+    );
+    if (hasInvalidStatus) {
       return { success: false, error: APPLICATION_ERRORS.invalidStatus };
     }
 
@@ -39,7 +52,13 @@ export async function listLeaveApplicationAction(filters?: {
       .select("id, employee_id, start_date, end_date, leave_type_id, note, status, created_at")
       .order("created_at", { ascending: false });
     if (scopeEmployeeId !== undefined) query = query.eq("employee_id", scopeEmployeeId);
-    if (filters?.status) query = query.eq("status", filters.status);
+
+    if (
+      requestedStatuses.length > 0 &&
+      requestedStatuses.length < APPLICATION_STATUSES.length
+    ) {
+      query = query.in("status", requestedStatuses);
+    }
 
     const { data: leaves, error } = await query;
     if (error) return { success: false, error: error.message };
@@ -152,10 +171,20 @@ export async function getLeaveApplicationDetailAction(leaveId: number) {
       .eq("id", 1)
       .maybeSingle();
 
+    let reviewedByName: string | null = null;
+    if (leave.reviewed_by) {
+      const { data: reviewer } = await adminClient
+        .from("profiles")
+        .select("name")
+        .eq("id", leave.reviewed_by)
+        .maybeSingle();
+      reviewedByName = reviewer?.name?.trim() || null;
+    }
+
     return {
       success: true,
       data: {
-        leave: { ...leave, leave_type_name: type?.name ?? "Unknown" },
+        leave: { ...leave, leave_type_name: type?.name ?? "Unknown", reviewed_by_name: reviewedByName },
         application: {
           ...application,
           beginning_balance: Number(application.beginning_balance),
@@ -170,6 +199,72 @@ export async function getLeaveApplicationDetailAction(leaveId: number) {
         settings: settings ?? null,
       },
     };
+  } catch (err: unknown) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : APPLICATION_ERRORS.loadFailed,
+    };
+  }
+}
+
+// Retrieves an employee’s leave balances for a given year across all leave pools, 
+// based on approved leave days and access permissions.
+export async function getEmployeeLeaveBalancesAction(
+  employeeId: number,
+  year?: number
+) {
+  try {
+    const db = await createClient();
+    const ctx = await getCallerContext(db);
+    if (!ctx) return { success: false, error: APPLICATION_ERRORS.notSignedIn };
+
+    // The id must be a real positive whole number.
+    const empId = Number(employeeId);
+    if (!Number.isInteger(empId) || empId <= 0) {
+      return { success: false, error: APPLICATION_ERRORS.notOwnEmployee };
+    }
+
+    // Same permission rule as the rest of this file: a member can only see
+    // their own employee, Admin/HR can see anyone.
+    const accessError = checkEmployeeAccess(ctx, empId);
+    if (accessError) return { success: false, error: accessError };
+
+    // No year given means "this calendar year".
+    const targetYear = year ?? new Date().getFullYear();
+    if (!Number.isInteger(targetYear) || targetYear < 1900 || targetYear > 9999) {
+      return { success: false, error: APPLICATION_ERRORS.loadFailed };
+    }
+
+    // List the pools. Only need the id and name here, because
+    // getLeaveBalance reads the allotment itself.
+    const adminClient = await createAdminClient();
+    const { data: pools, error: poolsError } = await adminClient
+      .from("leave_balance_pools")
+      .select("id, pool_name")
+      .order("id", { ascending: true });
+    if (poolsError) return { success: false, error: poolsError.message };
+
+    // One balance per pool, all asked at the same time.
+    const balances = await Promise.all(
+      (pools || []).map(async (pool: { id: number; pool_name: string }) => {
+        const balance = await getLeaveBalance({
+          employeeId: empId,
+          year: targetYear,
+          poolId: Number(pool.id),
+        });
+        return {
+          poolId: Number(pool.id),
+          poolName: pool.pool_name,
+          annualAllotment: balance.annualAllotment,
+          usedApproved: balance.usedApproved,
+          // Can be negative on purpose, so over-use stays visible.
+          remainingBalance: balance.remainingBalance,
+          year: balance.year,
+        };
+      })
+    );
+
+    return { success: true, data: balances };
   } catch (err: unknown) {
     return {
       success: false,

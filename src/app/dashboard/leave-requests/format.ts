@@ -2,6 +2,7 @@ export type ApplicationDetail = {
 	leave: {
 		id: number; 
 		employee_id: number;
+		leave_type_id: number;
 		start_date: string;
 		end_date: string;
 		leave_type_name: string;
@@ -10,6 +11,7 @@ export type ApplicationDetail = {
 		created_at: string;
 		reviewed_at: string | null;
 		review_note: string | null;
+		reviewed_by_name: string | null;
 	};
 
 	application: {

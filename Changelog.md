@@ -1,5 +1,83 @@
 # Changelog
 
+## [1.1.5] - Leave Application Phase 5 (approve, deny, balances)
+
+Phase 5 lets Admin/HR approve or deny a pending leave application. Approval and denial only
+update `employee_leaves` (`status`, `reviewed_by`, `reviewed_at`, `review_note`). Day rows and
+the form snapshot are left as filed. Approved days then reduce the pool balance. Denied days
+do not. Members see their own remaining balances on the home dashboard.
+
+### Added
+
+* **Review action** (`src/app/dashboard/leave-requests/review-actions.ts`)
+  * `reviewLeaveRequestAction({ leaveId, decision, review_note })`. Decision is `approved` or `denied`.
+  * Admin/HR only. A missing application, a leave with no form row (Set Leave), or a status other
+    than `pending` is rejected. The `UPDATE` also requires `status = 'pending'`, so a leave that
+    was approved, denied, or deleted in between is left unchanged.
+  * Approve fails when another **approved** leave for that employee already covers the range
+    (`hasApprovedOverlap` in `_lib/queries.ts`, excluding this leave).
+  * Approve re-checks the start-year balance. If remaining is lower than this application's
+    `leave_taken`, the leave is still approved and the result includes `balanceWarning`.
+    Deny skips the overlap check and the balance check.
+  * Optional review note, trimmed, maximum 255 characters.
+  * Revalidates attendance paths and `/dashboard/leave-requests`.
+
+* **Detail review UI** (`src/app/dashboard/leave-requests/[id]/`)
+  * `review-panel.tsx`: Approve and Deny for Admin/HR while the application is pending, with an
+    optional note and a confirm step. A low balance shows a warning toast and keeps the approval.
+    Delete pending stays here for Admin/HR.
+  * `detail-actions.tsx`: Back to the list and Print.
+  * The detail page keeps the filed Beginning / Taken / Allowable block as a snapshot and adds a
+    live "Remaining balance this year" line for that leave type's pool.
+
+* **Balance read** (`getEmployeeLeaveBalancesAction` in `read-actions.ts`)
+  * One row per leave pool for an employee and year (current year when omitted): pool name,
+    allotment, approved days used, and remaining. Remaining can be negative.
+  * A member can read only their linked employee. Admin/HR can read any employee.
+
+* **Member home balances** (`src/app/dashboard/page.tsx`, `employee-dashboard-view.tsx`)
+  * The employee dashboard loads that member's pools and shows **My Leave Balances**: pool name,
+    days left, used, and allotment. Pools with no allotment and no use are hidden.
+  * The admin attendance dashboard is unchanged and has no balance cards.
+
+* **Shared confirm dialog** (`src/components/confirm-dialog.tsx`), used by review and by the apply form.
+
+### Updated
+
+* **`_lib/errors.ts`:** review messages — Admin/HR only, decision must be approved or denied,
+  only pending can be reviewed, note length, approved-leave overlap, and the review catch-all.
+* **`_lib/queries.ts`:** `hasApprovedOverlap` for approve. Submit still uses `hasApplicationOverlap`
+  (pending or approved).
+* **Dashboard header** (`site-header.tsx`, `dashboard/layout.tsx`): Leave Requests uses the leave
+  status filter. Admin/HR (`canManageLeave`) also get the employee picker on the leave list.
+* **Apply confirm copy** states that a pending request does not reduce the balance until it is approved.
+
+### Tests
+
+* `leave-requests/actions.test.ts`: a member cannot review; Admin/HR can approve; bad decision,
+  note over 255, non-pending, and a zero-row update use the review error strings; an approved
+  overlap does not update; deny sets `denied` and skips the balance query; review does not
+  insert or delete day or form rows; a low balance still approves and returns `balanceWarning`;
+  balance reads enforce own-employee vs Admin/HR and query approved days only.
+* `employee-dashboard-view.test.tsx`: balance card hidden when empty, shown with remaining / used /
+  allotment, and a negative remaining stays visible.
+* `site-header.test.tsx`: leave list title, member has no employee picker, Admin/HR load the
+  employee list, and the new / detail / print titles.
+* Year-split math stays in `src/utils/leave-balance.test.ts`. Pending and denied rows are excluded
+  because the balance query filters `status = 'approved'`.
+
+### Notes / limitations (future improvements)
+
+* **Reject status** in the database is `denied`.
+* **Over-balance approve** is allowed. The warning is returned to the reviewer; it does not block.
+* **Approved overlap** is a hard fail and does not change the row.
+* **Set Leave** rows have no form row, so they are not reviewed here.
+* **Admin/HR balance lookup:** `getEmployeeLeaveBalancesAction` can return every pool for any employee, but no
+  screen calls it that way. The full pool list (**My Leave Balances**) is only on the member home dashboard, for the signed-in user's own employee. An admin home is the attendance dashboard and does not show balances. The employee menu on the leave list only filters applications. An admin or HR user can still see one number for someone else by opening that person's leave request: **Remaining balance this year** is that request's leave type and start year, not every pool.
+* **Still later:** editing a pending application, Settings editors for pools, types, and the form
+  header (Phase 6), Set Leave polish (Phase 7), HR role assignment and employee position columns
+  (Phase 8).
+
 ## [1.1.4] - Leave Application Phase 4 (apply, list, detail, print)
 
 Phase 4 adds a separate **Leave Requests** area where employees file leave applications and
