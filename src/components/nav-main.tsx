@@ -39,9 +39,9 @@ export function NavMain({
   const pathname = usePathname();
 
   return (
-    <SidebarGroup>
+    <SidebarGroup className="py-1">
       {label ? (
-        <SidebarGroupLabel className="group-data-[collapsible=icon]:hidden">
+        <SidebarGroupLabel className="h-7 group-data-[collapsible=icon]:hidden">
           {label}
         </SidebarGroupLabel>
       ) : null}

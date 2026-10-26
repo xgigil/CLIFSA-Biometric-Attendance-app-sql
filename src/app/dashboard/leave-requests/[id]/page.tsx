@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { isAdminOrHrRole } from "@/app/dashboard/attendance/roles";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getLeaveApplicationDetailAction } from "../read-actions";
-import { DetailActions } from "./delete-button";
+import { DetailActions } from "./detail-actions";
+import { ReviewPanel } from "./review-panel";
 import {
   formatShortDate,
   formatFormDate,
@@ -12,6 +12,7 @@ import {
   formatDays,
   type ApplicationDetail,
 } from "../format";
+import { getLeaveBalanceForLeaveType } from "@/utils/leave-balance";
 
 const LIST_PATH = "/dashboard/leave-requests";
 
@@ -55,13 +56,24 @@ export default async function LeaveApplicationDetailPage({ params }: PageProps) 
       <div className="w-full my-6 px-6 space-y-3">
         <p className="text-sm text-red-500">{res.error || "Application not found."}</p>
         <Link href={LIST_PATH} className="text-sm underline">
-          Back to applications
+          Back to requests
         </Link>
       </div>
     );
   }
 
   const { leave, application, days } = res.data as ApplicationDetail;
+  let remainingBalance: number | null = null;
+  try {
+    const balance = await getLeaveBalanceForLeaveType({
+      employeeId: Number(leave.employee_id),
+      year: Number(String(leave.start_date).slice(0, 4)),
+      leaveTypeId: Number(leave.leave_type_id),
+    });
+    remainingBalance = balance.remainingBalance;
+  } catch {
+    remainingBalance = null;
+  }
 
   const supabase = await createClient();
   const {
@@ -72,14 +84,15 @@ export default async function LeaveApplicationDetailPage({ params }: PageProps) 
     .select("role")
     .eq("id", user?.id || "")
     .maybeSingle();
-  const isManager = isAdminOrHrRole(profile?.role);
+  const isAuthorized = isAdminOrHrRole(profile?.role);
 
-  const canDelete = isManager && leave.status === "pending";
+  const canDelete = isAuthorized && leave.status === "pending";
+  const canReview = isAuthorized && leave.status === "pending";
 
   return (
     <div className="w-full my-6 px-6">
       <div className="mx-auto max-w-3xl space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Leave Request #{leave.id}</h1>
             <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
@@ -87,7 +100,7 @@ export default async function LeaveApplicationDetailPage({ params }: PageProps) 
               <span>Filed {formatShortDate(application.date_filed)}</span>
             </div>
           </div>
-          <DetailActions leaveId={leave.id} canDelete={canDelete} />
+          <DetailActions leaveId={leave.id} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 rounded-lg border p-4 sm:grid-cols-2">
@@ -123,8 +136,13 @@ export default async function LeaveApplicationDetailPage({ params }: PageProps) 
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            These figures are a snapshot taken when the form was filed.
+            The figures above are a snapshot taken from the time the form was filed.
           </p>
+          {remainingBalance !== null && (
+            <p className="text-xs text-muted-foreground">
+              Remaining balance this year: {formatDays(remainingBalance)}
+            </p>
+          )}
         </div>
 
         <div className="rounded-lg border p-4 space-y-2">
@@ -147,11 +165,16 @@ export default async function LeaveApplicationDetailPage({ params }: PageProps) 
           )}
         </div>
 
+        {(canReview || canDelete) && (
+          <ReviewPanel leaveId={leave.id} canDelete={canDelete} canReview={canReview} />
+        )}
+
         {leave.reviewed_at && (
-          <div className="rounded-lg border p-4 text-sm">
+          <p className="text-xs text-muted-foreground">
             Reviewed {formatShortDate(leave.reviewed_at)}
+            {leave.reviewed_by_name ? ` by ${leave.reviewed_by_name}` : ""}
             {leave.review_note ? `: ${leave.review_note}` : ""}
-          </div>
+          </p>
         )}
       </div>
     </div>

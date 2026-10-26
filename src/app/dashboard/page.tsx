@@ -15,6 +15,8 @@ import { AdminDashboardView } from "@/components/admin-dashboard-view";
 import { EmployeeDashboardView } from "@/components/employee-dashboard-view";
 import { AdminDashboardSkeleton } from "@/components/skeletons/admin-dashboard-skeleton";
 import { EmployeeDashboardSkeleton } from "@/components/skeletons/employee-dashboard-skeleton";
+import { getEmployeeLeaveBalancesAction } from "@/app/dashboard/leave-requests/read-actions";
+import type { PoolBalance } from "@/utils/leave-balance";
 
 interface AdminContainerProps {
   today: string;
@@ -233,9 +235,10 @@ async function EmployeeDashboardContainer({
   let leaveRows: LeaveRow[] = [];
   let holidayRows: HolidayRow[] = [];
   let empName = "Employee";
+  let leaveBalances: PoolBalance[] | null = null;
 
   try {
-    const [empRes, logsRes, sysSettingsRes, leavesRes, holidaysRes] = await Promise.all([
+    const [empRes, logsRes, sysSettingsRes, leavesRes, holidaysRes, balancesRes] = await Promise.all([
       supabase
         .from("employees")
         .select("employee_id, employee_name")
@@ -265,6 +268,8 @@ async function EmployeeDashboardContainer({
         .select("start_date, end_date")
         .lte("start_date", monthDates[monthDates.length - 1])
         .gte("end_date", logsStartDate),
+
+      userEmpId > 0 ? getEmployeeLeaveBalancesAction(userEmpId) : Promise.resolve(null),
     ]);
 
     if (empRes.error) {
@@ -298,6 +303,12 @@ async function EmployeeDashboardContainer({
     } else {
       holidayRows = holidaysRes.data || [];
     }
+
+    if (balancesRes && balancesRes.success && balancesRes.data) {
+      leaveBalances = balancesRes.data as PoolBalance[];
+    } else if (balancesRes && !balancesRes.success) {
+      console.error("Leave balances fetch error:", balancesRes.error);
+    }
   } catch (err) {
     console.error("Unexpected fetch exception:", err);
     errorMsg = "An unexpected error occurred while fetching data.";
@@ -328,6 +339,7 @@ async function EmployeeDashboardContainer({
       stats={stats}
       recentLogs={personalRecentLogs}
       userEmployee={{ employee_name: empName, employee_id: userEmpId }}
+      leaveBalances={leaveBalances}
     />
   );
 }

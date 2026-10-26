@@ -17,6 +17,15 @@ export type ApplicationSnapshots = {
 	allowable_leave: number;
 };
 
+export type PoolBalance = {
+	poolId: number;
+	poolName: string;
+	annualAllotment: number;
+	usedApproved: number;
+	remainingBalance: number; // can be negative on purpose, so over-use stays visible
+	year: number;
+}
+
 export function computeRemainingBalance(
 	allotment: number,
 	used: number

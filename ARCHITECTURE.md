@@ -96,18 +96,20 @@ New accounts land as `profiles.status = pending` until an admin approves them.
 
 | Piece | Role |
 |--------|------|
-| `layout.tsx` | Requires signed-in user; sidebar + header; passes `role` into chrome |
-| `page.tsx` | Home dashboard: **admin** vs **employee** views (today’s attendance, weekly snapshot) |
+| `layout.tsx` | Requires signed-in user; sidebar + header; passes `role` and `canManageLeave` (admin/HR) into the header |
+| `page.tsx` | Home dashboard: **admin** attendance view, or **employee** attendance view plus that member's own leave-pool balances |
 | `loading.tsx` | Route-level loading UI |
 
 Sidebar navigation (see `components/app-sidebar.tsx`) groups:
 
-- **Overview** — Dashboard  
-- **Attendance** — Daily Logs (`/dashboard/analytics`), Calendar  
-- **Leave Management** — Leave Requests  
-- **System** — Settings  
+- **Overview** — Dashboard
+- **Attendance** — Daily Logs (`/dashboard/analytics`), Calendar
+- **Leave Management** — Leave Requests
+- **System** — Settings
 
 Quick actions (admin/HR): add attendance, set leave, set holiday.
+
+The admin home stays attendance-only. A member's own pool remaining is loaded on `page.tsx` with `getEmployeeLeaveBalancesAction` and rendered by `EmployeeDashboardView`.
 
 ### Feature areas under `dashboard/`
 
@@ -135,20 +137,27 @@ Server actions to **set / clear approved leave** on the calendar (admin/HR), inc
 
 #### Leave requests (applications) — `leave-requests/`
 
-Formal leave application workflow (apply → pending → review → print form).
+Formal leave application workflow (apply → pending → approve or deny → print form). Pages stay thin. Reads, apply writes, and review writes are separate server-action files. Private helpers stay in `_lib/` and are not routes.
 
 | Path / file | Purpose |
 |-------------|---------|
-| `page.tsx` | List applications (scoped by role) |
-| `new/` | Apply form |
-| `[id]/` | Detail |
+| `page.tsx` | List applications. Members are scoped to their own employee inside the list action. Admin/HR may filter with `?employee_id=` and `?status=`. |
+| `applications-table.tsx`, `format.ts` | List table and shared date/day formatting |
+| `new/page.tsx`, `new/apply-form.tsx` | Apply form |
+| `[id]/page.tsx` | Detail: filed snapshot plus live remaining for that pool |
+| `[id]/detail-actions.tsx` | Back and Print links |
+| `[id]/review-panel.tsx` | Admin/HR approve or deny (optional note), and delete while pending |
 | `[id]/print/` | Printable leave application form |
-| `read-actions.ts` | List / detail reads |
-| `apply-actions.ts` | Submit / delete pending applications |
-| `applications-table.tsx`, `format.ts` | UI helpers |
-| `_lib/` | Caller context, queries, insert transaction, error constants |
+| `read-actions.ts` | `listLeaveApplicationAction`, `getLeaveApplicationDetailAction`, `getEmployeeLeaveBalancesAction` (all pools for one employee and year) |
+| `apply-actions.ts` | Submit, delete a pending application, preview days |
+| `review-actions.ts` | `reviewLeaveRequestAction`: Admin/HR only. Updates `employee_leaves` status and review fields. Does not write day rows or form rows. |
+| `actions.test.ts` | Apply, list/detail, review, and balance-read tests |
+| `_lib/caller.ts` | `getCallerContext`, `checkEmployeeAccess` (member = own employee; admin/HR = any) |
+| `_lib/queries.ts` | Submit overlap (pending or approved), approve overlap (approved only, excluding this leave), holidays, active leave type |
+| `_lib/insert-application.ts` | Pending insert transaction (leave + day rows + form snapshot). Review does not use this. |
+| `_lib/errors.ts` | Shared messages, including review errors (`reviewUnauthorized`, `invalidDecision`, `reviewNotPending`, `noteTooLong`, `approvedOverlap`, `reviewFailed`) |
 
-**Member** sees own linked employee; **admin/HR** can see/manage across employees.
+**Member** sees their own requests and their own balances (on the home dashboard). **Admin/HR** can list and review any employee. The employee picker for that list lives in `site-header.tsx` on `/dashboard/leave-requests`, shown only when `canManageLeave` is set. Approving with another approved leave on the same dates fails. A low remaining balance warns and still approves. Deny does not change balances. Pending and denied days are ignored by `getLeaveBalance` (`status = 'approved'` only).
 
 #### Holidays — `holidays/`
 
@@ -168,11 +177,15 @@ Placeholder route (skeleton UI); not a full reporting feature yet.
 
 | Area | Purpose |
 |------|---------|
-| `ui/` | shadcn primitives (button, table, sidebar, dialog, etc.) |
+| `ui/` | shadcn primitives (button, table, sidebar, dialog, textarea, etc.) |
 | `attendance/` | Dialogs: add/edit/delete attendance, set/remove leave, set holiday |
 | `skeletons/` | Loading placeholders for admin/employee dashboard & analytics |
-| `app-sidebar.tsx`, `nav-*.tsx`, `site-header.tsx` | App chrome |
-| `admin-dashboard-view.tsx` / `employee-dashboard-view.tsx` | Role-specific home dashboards |
+| `app-sidebar.tsx`, `nav-*.tsx` | App chrome and navigation |
+| `site-header.tsx` | Route title and right-side controls. Daily Logs and Calendar keep the attendance date controls. Leave Requests uses `StatusFilter` with leave statuses; Admin/HR also get the employee picker on the list. |
+| `status-filter.tsx` | Shared status menu. `ATTENDANCE_STATUS_OPTIONS` for Daily Logs; `LEAVE_STATUS_OPTIONS` (`pending`, `approved`, `denied`, `cancelled`) for Leave Requests. |
+| `confirm-dialog.tsx` | Shared confirm step for apply, review, and delete |
+| `admin-dashboard-view.tsx` | Admin home: attendance counts and weekly chart. No leave-balance cards. |
+| `employee-dashboard-view.tsx` | Member home: attendance stats plus **My Leave Balances** (pool name, remaining, used, allotment) |
 | `employee-attendance-calendar.tsx` | Calendar widget used on employee surfaces |
 | `login-form.tsx` / `signup-form.tsx` | Auth forms |
 | `theme-provider.tsx`, `mode-toggle.tsx` | Light/dark theme |
@@ -199,9 +212,9 @@ Session cookie name: `clifsa_session` (see `db-client.ts`). Secret: `SESSION_SEC
 |--------|---------|
 | `attendance-processor.ts` | Core engine: raw Hik logs + leave + holidays → daily status (present, late, absent, on leave, etc.) and stats |
 | `leave-day-calculator.ts` | Expand leave ranges into per-day rows (full / half day), respect holidays |
-| `leave-balance.ts` | Pool allotments, usage, and application snapshot fields for the printed form |
+| `leave-balance.ts` | Pool allotment minus approved `day_value` in the calendar year. Used for the apply-form snapshot, the approval re-check, and on-screen remaining balances. |
 
-Keep page/actions thin; put reusable attendance/leave math here.
+Keep page/actions thin; put reusable attendance/leave math here. Listing every pool for one employee stays in `getEmployeeLeaveBalancesAction`; the util still takes one `poolId` per call.
 
 ---
 
@@ -217,9 +230,9 @@ Canonical definition: **`mysql/schema.sql`**.
 | `hik_biometric_logs` | Raw punch logs from the biometric system |
 | `system_settings` | Work hours, grace, company letterhead |
 | `leave_balance_pools` / `leave_type_policies` | Leave categories and annual allotments |
-| `employee_leaves` | Leave records (`pending` / `approved` / `denied` / `cancelled`) |
-| `employee_leave_days` | Materialized leave days (0.5 / 1.0) |
-| `leave_applications` | Form metadata snapshot for printing |
+| `employee_leaves` | Leave records (`pending` / `approved` / `denied` / `cancelled`), plus `reviewed_by`, `reviewed_at`, `review_note` after review |
+| `employee_leave_days` | Materialized leave days (0.5 / 1.0). Written on submit, not on approve/deny. |
+| `leave_applications` | Form metadata snapshot for printing. Written on submit, not on review. |
 | `company_holidays` | Non-working company holiday ranges |
 
 `supabase/migrations/` documents an earlier Supabase/Postgres design (RLS, etc.). Prefer `mysql/` for the current runtime schema.
@@ -232,9 +245,9 @@ Defined in `src/app/dashboard/attendance/roles.ts`:
 
 | Role | Typical access |
 |------|----------------|
-| `member` | Own attendance / leave (via linked `profiles.employee_id`) |
-| `hr` | Manage leave & holidays; broader leave-request visibility |
-| `admin` | Full console, settings, user approval, attendance edits |
+| `member` | Own attendance, own leave requests, and own pool balances on the home dashboard (via linked `profiles.employee_id`) |
+| `hr` | Manage leave and holidays; list, filter, and review any leave request; look up any employee's balances |
+| `admin` | Full console, settings, user approval, attendance edits, plus the same leave-request review access as HR |
 
 Registration gate (`profiles.status`) is enforced in `src/proxy.ts` independently of role.
 
@@ -243,24 +256,25 @@ Registration gate (`profiles.status`) is enforced in `src/proxy.ts` independentl
 ## Testing conventions
 
 - Colocated `*.test.ts` / `*.test.tsx` next to the module under test.
-- Domain tests for `utils/`, schema integrity under `mysql/`, action tests under feature folders (e.g. `leave-requests/actions.test.ts`).
+- Domain tests for `utils/` (including approved-only and year-split balance math in `leave-balance.test.ts`), schema integrity under `mysql/`, and action tests under feature folders (`leave-requests/actions.test.ts` covers apply, read, review, and balance reads).
+- Header and member-dashboard tests cover the leave list controls and the balance cards (`site-header.test.tsx`, `employee-dashboard-view.test.tsx`).
 - Run: `pnpm test` (or `npm test` / `vitest run`).
 
 ---
 
 ## Conventions worth preserving
 
-1. **Server Actions** live next to the feature (`*-actions.ts` or `actions.ts`) with `"use server"`.
+1. **Server Actions** live next to the feature (`*-actions.ts` or `actions.ts`) with `"use server"`. Leave requests split reads (`read-actions.ts`), apply writes (`apply-actions.ts`), and review writes (`review-actions.ts`).
 2. **`_lib/`** under a feature holds private helpers not meant as routes.
 3. Prefer **`createClient()`** from `@/lib/supabase/server` (or `@/lib/db-server`) in RSC/actions so cookies stay in sync.
 4. Use **`createAdminClient()`** when the query must bypass the caller’s row scope but still runs on the server after an explicit authz check.
-5. After writes that affect dashboards/calendars, call the shared **revalidate** helpers (e.g. from `attendance/admin.ts`).
+5. After writes that affect dashboards/calendars, call the shared **revalidate** helpers (e.g. from `attendance/admin.ts`). Review also revalidates `/dashboard/leave-requests`.
 6. Do not treat `@/lib/supabase` as a remote Supabase project — it is a local API façade over MySQL.
 
 ---
 
 ## Related docs
 
-- [README.md](./README.md) — product summary  
-- [mysql/Leave-Application_Migration_Steps.md](./mysql/Leave-Application_Migration_Steps.md) — leave-application DB migration notes  
-- `.env.example` — required environment variables  
+- [README.md](./README.md) — product summary
+- [mysql/Leave-Application_Migration_Steps.md](./mysql/Leave-Application_Migration_Steps.md) — leave-application DB migration notes
+- `.env.example` — required environment variables

@@ -20,6 +20,7 @@ import {
   submitLeaveApplicationAction,
 } from "../apply-actions";
 import { formatFormDate, formatWeekday, formatDays } from "../format";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 interface EmployeeOption {
 	employee_id: number;
@@ -79,6 +80,7 @@ export function ApplyForm ({
   const [previewError, setPreviewError] = React.useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
 
 	const effectiveHalfDays = React.useMemo(() => {
 		if (!halfDay || !startDate || !endDate) return [];
@@ -163,16 +165,42 @@ export function ApplyForm ({
     applicantName.trim().length > 0 &&
     note.trim().length > 0;
 
-	const handleSubmit = async (e: React.FormEvent) => {
-		e.preventDefault();
-		if (!employeeId) return toast.error("Please select an employee");
-    if (!applicantName.trim()) return toast.error("Name is required");
-    if (!leaveTypeId) return toast.error("Please select a leave type");
-    if (!startDate || !endDate) return toast.error("Please select From and To dates");
-    if (endDate < startDate) return toast.error("To date cannot be before From date");
-    if (!note.trim()) return toast.error("Reason for leave is required");
+  const requestIsValid = () => {
+    if (!employeeId) {
+      toast.error("Please select an employee");
+      return false;
+    }
+    if (!applicantName.trim()) {
+      toast.error("Name is required");
+      return false;
+    }
+    if (!leaveTypeId) {
+      toast.error("Please select a leave type");
+      return false;
+    }
+    if (!startDate || !endDate) {
+      toast.error("Please select From and To dates");
+      return false;
+    }
+    if (endDate < startDate) {
+      toast.error("To date cannot be before From date");
+      return false;
+    }
+    if (!note.trim()) {
+      toast.error("Reason for leave is required");
+      return false;
+    }
+    return true;
+  };
 
-		setSubmitting(true);
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!requestIsValid()) return;
+    setConfirmOpen(true);
+  };
+
+  const sendRequest = async () => {
+    setSubmitting(true);
     try {
       const res = await submitLeaveApplicationAction({
         employee_id: parseInt(employeeId, 10),
@@ -188,6 +216,7 @@ export function ApplyForm ({
 
       if (res.success && res.leaveId) {
         toast.success("Leave request submitted");
+        setConfirmOpen(false);
         router.push(`/dashboard/leave-requests/${res.leaveId}`);
       } else {
         toast.error(res.error || "Failed to submit leave request");
@@ -202,6 +231,7 @@ export function ApplyForm ({
 	const hasMultipleDays = !!startDate && !!endDate && startDate!== endDate;
 
 	return (
+    <>
 		<form onSubmit={handleSubmit} className="mx-auto max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Leave Request</h1>
@@ -433,10 +463,23 @@ export function ApplyForm ({
         <Button type="button" variant="outline" asChild>
           <Link href="/dashboard/leave-requests">Cancel</Link>
         </Button>
-        <Button type="submit" disabled={!canSubmit}>
-          {submitting && <Spinner className="size-4 mr-2" />} Submit application
+        <Button type="submit" disabled={!canSubmit} className="cursor-pointer">
+          {submitting && <Spinner className="size-4 mr-2" />} Submit request
         </Button>
       </div>
     </form>
+    <ConfirmDialog
+      open={confirmOpen}
+      title="Submit this request?"
+      description="The request will be filed as pending. It will not reduce the leave balance until it is approved."
+      confirmLabel="Submit request"
+      confirmVariant="default"
+      pending={submitting}
+      onOpenChange={(open) => {
+        if (!open) setConfirmOpen(false);
+      }}
+      onConfirm={sendRequest}
+    />
+		</>
 	);
 }
