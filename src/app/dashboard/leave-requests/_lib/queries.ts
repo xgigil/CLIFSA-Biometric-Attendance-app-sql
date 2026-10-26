@@ -20,6 +20,25 @@ export async function hasApplicationOverlap(
   return !!(existing && existing.length > 0);
 }
 
+// Approved leave already covering part of the range?
+export async function hasApprovedOverlap(
+  adminClient: AdminDb,
+  employee_id: number,
+  start_date: string,
+  end_date: string,
+  excludeLeaveId?: number
+): Promise<boolean> {
+  const { data: existing } = await adminClient
+    .from("employee_leaves")
+    .select("id")
+    .eq("employee_id", employee_id)
+    .eq("status", "approved")
+    .lte("start_date", end_date)
+    .gte("end_date", start_date);
+
+  return !!existing && existing.some((row: { id: number }) => row.id !== excludeLeaveId);
+}
+
 // Loads holiday dates in the range so workdays can skip them.
 export async function loadHolidayDateSet(
   adminClient: AdminDb,

@@ -18,13 +18,18 @@ import {
   Fingerprint,
   Sun,
   Moon,
+  ArrowRight,
 } from "lucide-react";
 import { EmployeeMonthlyStats, RawBiometricLog } from "@/utils/attendance-processor";
+import type { PoolBalance } from "@/utils/leave-balance";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export interface EmployeeDashboardViewProps {
   stats: EmployeeMonthlyStats;
   recentLogs: RawBiometricLog[];
   userEmployee: { employee_name: string; employee_id: number };
+  leaveBalances?: PoolBalance[] | null;
 }
 
 function formatTime12h(timeStr: string | null): string {
@@ -78,10 +83,15 @@ function isDaytimePunch(timeStr: string | null, dateTimeStr: string | null): boo
   return h >= 6 && h < 17;
 }
 
+function formatDays(n: number): string {
+  return Number.isInteger(n) ? n.toString() : n.toFixed(1);
+}
+
 export function EmployeeDashboardView({
   stats,
   recentLogs,
   userEmployee,
+  leaveBalances,
 }: EmployeeDashboardViewProps) {
   const loggedHoursProgress = Math.min(
     100,
@@ -140,8 +150,12 @@ export function EmployeeDashboardView({
     }
   };
 
+  const visibleBalances = (leaveBalances ?? []).filter(
+    (b) => b.annualAllotment > 0 || b.usedApproved > 0
+  );
+
   return (
-    <div className="flex flex-col gap-6 w-full">
+    <div className="flex flex-col gap-6 w-full pb-8">
 
       {/* 2. 4 Personal Summary Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
@@ -222,8 +236,8 @@ export function EmployeeDashboardView({
         </Card>
       </div>
 
-      {/* 3. Lower Section (2 columns on large screens) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start mb-8">
+      {/* 4. Lower Section (2 columns on large screens) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Column 1: Today's Shift Status */}
         <Card className="shadow-xs">
           <CardHeader className="border-b pb-4">
@@ -368,6 +382,72 @@ export function EmployeeDashboardView({
           </CardContent>
         </Card>
       </div>
+
+      {/* 5. Leave Balance Cards */}
+      {visibleBalances.length > 0 && (
+        <Card className="shadow-xs">
+          <CardHeader className="border-b pb-4">
+            <CardTitle className="text-base font-semibold">My Leave Balances</CardTitle>
+            <CardDescription className="text-xs">
+              Leaves available for {visibleBalances[0].year}.
+            </CardDescription>
+            <CardAction>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 cursor-pointer gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
+                asChild
+              >
+                <Link href="/dashboard/leave-requests">
+                  View leave requests
+                  <ArrowRight className="size-3.5" />
+                </Link>
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {visibleBalances.map((b) => {
+                // How much of the pool is used, as a percentage for the bar.
+                // A pool with no allotment shows an empty bar (avoids dividing by zero).
+                const usedPercent =
+                  b.annualAllotment > 0
+                    ? Math.min(100, Math.max(0, (b.usedApproved / b.annualAllotment) * 100))
+                    : 0;
+                // Negative means the person has used more than the allotment.
+                const isOverUsed = b.remainingBalance < 0;
+
+                return (
+                  <div key={b.poolId} className="rounded-md border bg-card p-4 flex flex-col gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">{b.poolName}</p>
+                    <div className="flex items-baseline gap-1.5">
+                      <span
+                        className={`text-2xl font-bold tabular-nums ${
+                          isOverUsed ? "text-rose-600 dark:text-rose-400" : "text-gray-700 dark:text-gray-100"
+                        }`}
+                      >
+                        {formatDays(b.remainingBalance)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {Math.abs(b.remainingBalance) === 1 ? "day" : "days"} left
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={`h-full rounded-full ${isOverUsed ? "bg-rose-500" : "bg-emerald-500"}`}
+                        style={{ width: `${usedPercent}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Used {formatDays(b.usedApproved)} of {formatDays(b.annualAllotment)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

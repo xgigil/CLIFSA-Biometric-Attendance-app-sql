@@ -39,9 +39,12 @@ import {
   deletePendingApplicationAction,
 } from "./apply-actions";
 
+import { reviewLeaveRequestAction } from "./review-actions";
+
 import {
   listLeaveApplicationAction,
   getLeaveApplicationDetailAction,
+  getEmployeeLeaveBalancesAction,
 } from "./read-actions";
 
 // ---------- fake query builder (records every chained call) ----------
@@ -99,6 +102,16 @@ function connQuery(sql: string) {
   return Promise.resolve([[]]);
 }
 
+// Answers the SQL that review and balance reads run on the pool.
+function poolQuery(sql: string) {
+  const text = String(sql);
+  if (text.includes("SELECT pool_id")) return Promise.resolve([[{ pool_id: 1 }]]);
+  if (text.includes("SELECT annual_allotment")) return Promise.resolve([[{ annual_allotment: "15.0" }]]);
+  if (text.includes("SUM(d.day_value)")) return Promise.resolve([[{ used: "4.0" }]]); // 15 - 4 = 11
+  if (text.includes("UPDATE employee_leaves")) return Promise.resolve([{ affectedRows: 1 }]);
+  return Promise.resolve([[]]);
+}
+
 const connCall = (fragment: string) =>
   m.conn.query.mock.calls.find((c: any[]) => String(c[0]).includes(fragment));
 
@@ -111,11 +124,27 @@ const payload = {
   applicant_name: "Ana Reyes",
 };
 
+const pendingLeave = {
+  id: 5,
+  employee_id: 1001,
+  start_date: "2026-09-21",
+  end_date: "2026-09-25",
+  leave_type_id: 2,
+  status: "pending",
+};
+const pendingForm = { id: 1, leave_taken: "3.5" };
+const reviewPayload = {
+  leaveId: 5,
+  decision: "approved" as const,
+  review_note: "Approved",
+};
+
 beforeEach(() => {
   calls = [];
   vi.clearAllMocks();
   m.getConnection.mockResolvedValue(m.conn);
   m.conn.query.mockImplementation(connQuery);
+  m.poolQuery.mockImplementation(poolQuery);
   m.checkIsAdminOrHr.mockResolvedValue(true);
 });
 
@@ -390,5 +419,182 @@ describe("getLeaveApplicationDetailAction", () => {
     });
     const res = await getLeaveApplicationDetailAction(5);
     expect(res.success).toBe(false);
+  });
+});
+
+describe("reviewLeaveRequestAction", () => {
+  it("a member cannot review", async () => {
+    setup({ role: "member", tables: { employee_leaves: [pendingLeave], leave_applications: [pendingForm] } });
+    m.checkIsAdminOrHr.mockResolvedValue(false);
+
+    const res = await reviewLeaveRequestAction(reviewPayload);
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Only Admin or HR can review applications.");
+    expect(m.poolQuery).not.toHaveBeenCalled();
+  });
+
+  it.each(["admin", "hr"])("%s can approve a pending application", async (role) => {
+    setup({ role, tables: { employee_leaves: [pendingLeave], leave_applications: [pendingForm] } });
+
+    const res = await reviewLeaveRequestAction(reviewPayload);
+
+    expect(res).toEqual({ success: true, balanceWarning: undefined });
+    const update = m.poolQuery.mock.calls.find((c) => String(c[0]).includes("UPDATE employee_leaves"))!;
+    expect(update[0]).toContain("reviewed_by = ?");
+    expect(update[0]).toContain("reviewed_at = NOW()");
+    expect(update[0]).toContain("status = 'pending'");
+    expect(update[1]).toEqual(["approved", "user-1", "Approved", 5]);
+    expect(m.revalidateAttendancePaths).toHaveBeenCalledTimes(1);
+    expect(m.revalidatePath).toHaveBeenCalledWith("/dashboard/leave-requests");
+  });
+
+  it("rejects a decision other than approved or denied", async () => {
+    setup({ tables: { employee_leaves: [pendingLeave], leave_applications: [pendingForm] } });
+    const res = await reviewLeaveRequestAction({ ...reviewPayload, decision: "cancelled" as any });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Decision must be approved or denied.");
+    expect(m.poolQuery).not.toHaveBeenCalled();
+  });
+
+  it("rejects a review note longer than 255 characters", async () => {
+    setup({ tables: { employee_leaves: [pendingLeave], leave_applications: [pendingForm] } });
+    const res = await reviewLeaveRequestAction({ ...reviewPayload, review_note: "x".repeat(256) });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Review note must be 255 characters or less.");
+    expect(m.poolQuery).not.toHaveBeenCalled();
+  });
+
+  it("rejects a leave that is not pending", async () => {
+    setup({
+      tables: {
+        employee_leaves: [{ ...pendingLeave, status: "approved" }],
+        leave_applications: [pendingForm],
+      },
+    });
+    const res = await reviewLeaveRequestAction(reviewPayload);
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Only pending applications can be reviewed.");
+    expect(m.poolQuery).not.toHaveBeenCalled();
+  });
+
+  it("treats a lost race on the pending update as not pending", async () => {
+    setup({ tables: { employee_leaves: [pendingLeave], leave_applications: [pendingForm] } });
+    m.poolQuery.mockImplementation((sql: string) =>
+      String(sql).includes("UPDATE employee_leaves")
+        ? Promise.resolve([{ affectedRows: 0 }])
+        : poolQuery(sql)
+    );
+
+    const res = await reviewLeaveRequestAction(reviewPayload);
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Only pending applications can be reviewed.");
+  });
+
+  it("refuses approval when another approved leave overlaps, and does not update", async () => {
+    setup({
+      tables: {
+        employee_leaves: [pendingLeave, { ...pendingLeave, id: 9, status: "approved" }],
+        leave_applications: [pendingForm],
+      },
+    });
+
+    const res = await reviewLeaveRequestAction(reviewPayload);
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe(
+      "Cannot approve: this employee already has an approved leave covering part of that range."
+    );
+    const statusCall = calls.find(
+      (c) => c.table === "employee_leaves" && c.method === "eq" && c.args[0] === "status"
+    );
+    expect(statusCall?.args[1]).toBe("approved");
+    expect(m.poolQuery).not.toHaveBeenCalled();
+  });
+
+  it("deny sets denied and does not check balance or overlap", async () => {
+    setup({ tables: { employee_leaves: [pendingLeave], leave_applications: [pendingForm] } });
+
+    const res = await reviewLeaveRequestAction({ ...reviewPayload, decision: "denied" });
+
+    expect(res).toEqual({ success: true, balanceWarning: undefined });
+    const update = m.poolQuery.mock.calls.find((c) => String(c[0]).includes("UPDATE employee_leaves"))!;
+    expect(update[1][0]).toBe("denied");
+    expect(m.poolQuery.mock.calls.some((c) => String(c[0]).includes("SUM(d.day_value)"))).toBe(false);
+    const overlap = calls.find(
+      (c) => c.table === "employee_leaves" && c.method === "eq" && c.args[0] === "status"
+    );
+    expect(overlap).toBeUndefined();
+  });
+
+  it("review does not insert or delete day or form rows", async () => {
+    setup({ tables: { employee_leaves: [pendingLeave], leave_applications: [pendingForm] } });
+    await reviewLeaveRequestAction(reviewPayload);
+
+    const sqls = m.poolQuery.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((sql) => sql.includes("INSERT") || sql.includes("DELETE"))).toBe(false);
+    expect(calls.some((c) => c.method === "delete")).toBe(false);
+  });
+
+  it("still approves when remaining balance is below the days taken, and returns a warning", async () => {
+    setup({
+      tables: {
+        employee_leaves: [pendingLeave],
+        leave_applications: [{ id: 1, leave_taken: "12.0" }],
+      },
+    });
+
+    const res = await reviewLeaveRequestAction(reviewPayload);
+
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.balanceWarning).toBe(
+      "Approved, but the remaining balance (11) is lower than the days taken (12)."
+    );
+  });
+});
+
+describe("getEmployeeLeaveBalancesAction", () => {
+  const pools = [{ id: 1, pool_name: "Vacation Leave" }];
+
+  it("a member cannot read another employee's balances", async () => {
+    setup({ role: "member", employeeId: 1001, tables: { leave_balance_pools: pools } });
+    const res = await getEmployeeLeaveBalancesAction(1002, 2026);
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/yourself/i);
+    expect(m.poolQuery).not.toHaveBeenCalled();
+  });
+
+  it("a member can read their own balances", async () => {
+    setup({ role: "member", employeeId: 1001, tables: { leave_balance_pools: pools } });
+    const res = await getEmployeeLeaveBalancesAction(1001, 2026);
+    expect(res).toEqual({
+      success: true,
+      data: [
+        {
+          poolId: 1,
+          poolName: "Vacation Leave",
+          annualAllotment: 15,
+          usedApproved: 4,
+          remainingBalance: 11,
+          year: 2026,
+        },
+      ],
+    });
+  });
+
+  it.each(["admin", "hr"])("%s can read any employee's balances", async (role) => {
+    setup({ role, employeeId: null, tables: { leave_balance_pools: pools } });
+    const res = await getEmployeeLeaveBalancesAction(1002, 2026);
+    expect(res.success).toBe(true);
+  });
+
+  it("asks the balance query for approved days only", async () => {
+    setup({ role: "hr", tables: { leave_balance_pools: pools } });
+    await getEmployeeLeaveBalancesAction(1001, 2026);
+
+    const sumCall = m.poolQuery.mock.calls.find((c) => String(c[0]).includes("SUM(d.day_value)"));
+    expect(String(sumCall?.[0])).toContain("l.status = 'approved'");
+    expect(sumCall?.[1]).toEqual([1001, 1, "2026-01-01", "2026-12-31"]);
   });
 });
