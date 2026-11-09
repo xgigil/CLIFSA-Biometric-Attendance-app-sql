@@ -58,7 +58,7 @@ export default async function LeaveApplicationPage({ searchParams }: PageProps) 
   const validEmpId = Number.isNaN(parsedEmp) ? undefined : parsedEmp;
 
   return (
-    <div className="w-full h-auto my-6 px-6">
+    <div className="flex h-auto w-full flex-col px-6 py-6 md:h-full md:min-h-0 md:overflow-hidden">
       <Suspense fallback={<EmployeeAnalyticsSkeleton />}>
         <LeaveApplicationsContainer statuses={validStatuses} employeeId={validEmpId} />
       </Suspense>
