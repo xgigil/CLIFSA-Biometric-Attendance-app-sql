@@ -1,5 +1,53 @@
 # Changelog
 
+## [1.1.6] - Leave Application Phase 6 (Settings: pools, types, form header)
+
+Phase 6 adds Settings editors so Admin/HR can change leave pool allotments, manage
+leave types, and edit the printable leave-form letterhead.
+
+### Added
+
+* **Leave policy settings actions** (`src/app/dashboard/settings/leave-settings/leave-policy-actions.ts`)
+  * `getLeavePolicySettingsAction`: one load of pools, leave types, and form header.
+    Admin/HR only.
+  * `updatePoolAllotmentAction`: annual allotment only (0–9999.9, one decimal).
+    Pool names are not editable here.
+  * `addLeaveTypeAction`, `updateLeaveTypeAction` (rename and/or move pool),
+    `setLeaveTypeActiveAction`, `deleteLeaveTypeAction`.
+  * Delete is allowed only when no `employee_leaves` row uses the type; otherwise
+    the action tells the user to deactivate. Deactivate hides the type from Apply
+    and Set Leave; approved days still count toward the pool.
+  * Moving a type to another pool changes which pool is charged on the next
+    balance read. Filed form snapshots are unchanged.
+  * `updateLeaveFormHeaderAction`: saves the seven letterhead fields on
+    `system_settings`. Blank / paper-default text is stored as `NULL` so print
+    uses `FORM_HEADER_FALLBACKS`.
+  * Revalidates `/dashboard`, leave-requests list layout, and `/new`.
+
+* **Settings UI** (`src/app/dashboard/settings/`)
+  * `leave-settings/leave-rules-section.tsx`: **Leave Rules** — pool allotment
+    table; leave-type table (name, pool, active/inactive, save, deactivate,
+    delete); add-type row. Warns when a pool move is about to be saved.
+  * `leave-settings/form-header-section.tsx`: **Leave Form Header** — company
+    name, address, phones, email, form title, signatory name/title, with its
+    own **Save Header** button (not the page-level Save Changes).
+  * `page.tsx`: Admin still sees shift rules and workspace members. Admin **or**
+    HR (`showLeaveSettings`) see Leave Rules and Leave Form Header.
+
+### Updated
+
+* Print and apply continue to read `system_settings` / active types; Settings is
+  now the editor for those values (Phase 4 deferred the header UI here).
+* Logo remains `public/clifsa-logo.png` (upload-from-Settings not in this phase).
+
+### Notes / limitations (future improvements)
+
+* **No new pools from UI:** allotment only; pool rows stay seed/SQL.
+* **No logo upload** in Settings yet.
+* **No dedicated leave-policy action tests** colocated under `leave-settings/` yet.
+* **No HR role assignment UI** yet; workspace roles in Settings stay Admin / Member.
+* **No employee position columns** in the UI yet.
+
 ## [1.1.5] - Leave Application Phase 5 (approve, deny, balances)
 
 Phase 5 lets Admin/HR approve or deny a pending leave application. Approval and denial only

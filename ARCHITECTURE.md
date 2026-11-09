@@ -165,7 +165,16 @@ Server actions for company holiday ranges (used from sidebar dialogs and attenda
 
 #### Settings — `settings/`
 
-System settings (work start time, grace period, company letterhead fields for leave forms) and related actions. Admin-oriented.
+Admin profile/preferences, shift rules (work start, grace), and workspace members
+remain Admin-only. **Leave Rules** and **Leave Form Header** are Admin **or** HR.
+
+| Path / file | Purpose |
+|-------------|---------|
+| `page.tsx` | Settings shell; loads leave policy when `role` is admin or hr |
+| `actions.ts` | Profile, system settings, member role/status/link/delete (Admin) |
+| `leave-settings/leave-policy-actions.ts` | Load/update pools, types, form header (Admin/HR) |
+| `leave-settings/leave-rules-section.tsx` | Pool allotments and leave-type CRUD UI |
+| `leave-settings/form-header-section.tsx` | Printable letterhead text editor |
 
 #### Reports — `reports/`
 

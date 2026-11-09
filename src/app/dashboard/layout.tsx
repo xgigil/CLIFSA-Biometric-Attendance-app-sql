@@ -42,7 +42,7 @@ export default async function Layout({ children }: { children: React.ReactNode }
           />
         </Suspense>
 
-        <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );

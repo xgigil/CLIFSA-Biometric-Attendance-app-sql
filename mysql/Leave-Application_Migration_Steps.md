@@ -2,6 +2,16 @@
 
 Upgrade an existing live DB. Do **not** recreate from `mysql/schema.sql`.
 
+## Skip this guide if the app has not run yet
+
+This guide is only for a database that **already has data** from an older version of the app.
+
+If the app has **never been run or deployed** (a brand-new install, a fresh dev machine, or a database you are happy to wipe), **skip this whole document**. Create the database from `mysql/schema.sql` instead. That file already includes the leave pools, leave types, day rows, application form table, and header columns, so there is nothing to migrate and no backfill to run.
+
+Use this guide only if you have existing leaves you need to keep.
+
+---
+
 **Order:**
 
 1. Backup  

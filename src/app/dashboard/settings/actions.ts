@@ -2,6 +2,7 @@
 
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import type { AuthUser } from "@/lib/db-client";
+import { isAdminRole, isAdminOrHrRole, type AppRole } from "@/app/dashboard/attendance/roles";
 
 
 export type MemberProfile = {
@@ -29,7 +30,7 @@ async function requireAdmin() {
 
 export async function getSettingsPageData(): Promise<{
   user: AuthUser | null;
-  role: "admin" | "member";
+  role: AppRole;
   profiles: MemberProfile[];
   employees: { employee_id: number; employee_name: string }[];
   sysSettings: { work_start_time: string; grace_period: number } | null;
@@ -44,7 +45,8 @@ export async function getSettingsPageData(): Promise<{
   }
 
   const { data: selfProfile } = await db.from("profiles").select("role, name").eq("id", user.id).single();
-  const role = ((selfProfile as { role?: string } | null)?.role === "admin" ? "admin" : "member") as "admin" | "member";
+  const rawRole = (selfProfile as {role?: string} | null)?.role;
+  const role: AppRole = isAdminRole(rawRole) ? "admin" : isAdminOrHrRole(rawRole) ? "hr" : "member";
   const profileName = (selfProfile as { name?: string | null } | null)?.name;
   const hydratedUser = profileName
     ? { ...user, user_metadata: { ...user.user_metadata, name: profileName, full_name: profileName } }
