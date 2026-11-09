@@ -165,6 +165,15 @@ class QueryBuilder {
         return this;
     }
 
+    in(column: string, values: readonly unknown[]) {
+        if (!values.length) {
+            this.filters.push({ sql: "1 = 0", params: [] });
+            return this;
+        }
+        this.filters.push({ sql: `${ident(column)} IN (?)`, params: [values] });
+        return this;
+    }
+
     order(column: string, opts?: { ascending?: boolean }) {
         this.orderSql = ` ORDER BY ${ident(column)} ${opts?.ascending === false ? "DESC" : "ASC"}`;
         return this;

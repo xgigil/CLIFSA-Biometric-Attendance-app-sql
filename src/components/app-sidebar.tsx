@@ -31,49 +31,61 @@ import {
   IconPlus,
   IconFlag,
   IconCalendarEvent,
+  IconFileText,
 } from "@tabler/icons-react";
 import { AddAttendanceDialog } from "@/components/attendance/add-attendance-dialog";
 import { SetLeaveDialog } from "@/components/attendance/set-leave-dialog";
 import { SetHolidayDialog } from "@/components/attendance/set-holiday-dialog";
+import { isAdminOrHrRole } from "@/app/dashboard/attendance/roles";
+
+const iconClass = { width: "1rem", height: "1rem" } as const;
 
 const data = {
-  navMain: [
+  navGroups: [
     {
-      title: "Dashboard",
-      url: "/dashboard",
-      icon: (
-        <IconDashboard
-          style={{ width: "1rem", height: "1rem" }}
-          strokeWidth={2.5}
-        />
-      ),
+      label: "Overview",
+      items: [
+        {
+          title: "Dashboard",
+          url: "/dashboard",
+          icon: <IconDashboard style={iconClass} strokeWidth={2.5} />,
+        },
+      ],
     },
     {
-      title: "Calendar",
-      url: "/dashboard/calendar",
-      icon: (
-        <IconCalendar
-          style={{ width: "1rem", height: "1rem" }}
-          strokeWidth={2.5}
-        />
-      ),
+      label: "Attendance",
+      items: [
+        {
+          title: "Daily Logs",
+          url: "/dashboard/analytics",
+          icon: <IconListDetails style={iconClass} strokeWidth={2.5} />,
+        },
+        {
+          title: "Calendar",
+          url: "/dashboard/calendar",
+          icon: <IconCalendar style={iconClass} strokeWidth={2.5} />,
+        },
+      ],
     },
     {
-      title: "Daily Logs",
-      url: "/dashboard/analytics",
-      icon: (
-        <IconListDetails
-          style={{ width: "1rem", height: "1rem" }}
-          strokeWidth={2.5}
-        />
-      ),
+      label: "Leave Management",
+      items: [
+        {
+          title: "Leave Requests",
+          url: "/dashboard/leave-requests",
+          icon: <IconFileText style={iconClass} strokeWidth={2.5} />,
+        },
+      ],
     },
     {
-      title: "Settings",
-      url: "/dashboard/settings",
-      icon: (
-        <Settings2 style={{ width: "1rem", height: "1rem" }} strokeWidth={2.5} />
-      ),
+      label: "System",
+      items: [
+        {
+          title: "Settings",
+          url: "/dashboard/settings",
+          icon: <Settings2 style={iconClass} strokeWidth={2.5} />,
+        },
+      ],
     },
   ],
 };
@@ -93,6 +105,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
   const [isAddAttendanceOpen, setIsAddAttendanceOpen] = React.useState(false);
   const [isSetLeaveOpen, setIsSetLeaveOpen] = React.useState(false);
   const [isSetHolidayOpen, setIsSetHolidayOpen] = React.useState(false);
+  const isAdmin = user?.role === "admin";
+  const canManageLeaveandHolidays = isAdminOrHrRole(user?.role);
 
   const actionButtonClassName =
     "w-full h-10 gap-2 rounded-full border border-border bg-background font-semibold text-xs justify-start px-4 hover:!bg-gray-100 hover:!text-gray-700 dark:hover:!bg-gray-100 dark:hover:!text-gray-700 aria-expanded:!bg-gray-100 aria-expanded:!text-gray-700 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:h-9 items-center flex";
@@ -119,8 +133,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
 
       <SidebarContent className="">
 
-        {user?.role === "admin" && (
-          <>
+        {isAdmin && (
             <div className="px-2.5 py-2 group-data-[collapsible=icon]:px-1.5 group-data-[collapsible=icon]:py-1.5 animate-fade-in group-data-[collapsible=icon]:my-2">
               <Button
                 className="w-full h-10 gap-2 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs justify-start px-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:h-9 group-data-[collapsible=icon]:items-center items-center align-center flex"
@@ -131,8 +144,10 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
                 <span className="group-data-[collapsible=icon]:hidden">Add Attendance</span>
               </Button>
             </div>
+        )}
 
-            <div className="px-2.5 pb-2 group-data-[collapsible=icon]:px-1.5">
+        {canManageLeaveandHolidays && (
+            <div className="px-2.5 py-2 group-data-[collapsible=icon]:px-1.5 group-data-[collapsible=icon]:py-1.5 animate-fade-in group-data-[collapsible=icon]:my-2">
               {isIconCollapsed ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -206,9 +221,10 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
                 </Collapsible>
               )}
             </div>
-          </>
         )}
-        <NavMain items={data.navMain} />
+        {data.navGroups.map((group) => (
+          <NavMain key={group.label} label={group.label} items={group.items} />
+        ))}
       </SidebarContent>
       <SidebarFooter className="p-3 group-data-[collapsible=icon]:p-2">
         {user && <NavUser user={user} />}

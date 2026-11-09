@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { IconBrandGithub } from "@tabler/icons-react";
-import { StatusFilter } from "@/components/status-filter";
+import { StatusFilter, LEAVE_STATUS_OPTIONS } from "@/components/status-filter";
 import * as React from "react";
 import { ChevronLeft, ChevronRight, User } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,9 +13,10 @@ import { getEmployeesAction } from "@/app/dashboard/analytics/actions";
 
 interface SiteHeaderProps {
   isAdmin?: boolean;
+  canManageLeave?: boolean;
 }
 
-export function SiteHeader({ isAdmin = true }: SiteHeaderProps) {
+export function SiteHeader({ isAdmin = true, canManageLeave = false }: SiteHeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -23,22 +24,28 @@ export function SiteHeader({ isAdmin = true }: SiteHeaderProps) {
   const [employees, setEmployees] = React.useState<{employee_id: number, employee_name: string}[]>([]);
 
   React.useEffect(() => {
-    if (isAdmin && pathname === "/dashboard/calendar") {
-      const fetchEmployees = async () => {
-        // Server action: browser cannot query MySQL directly.
-        const result = await getEmployeesAction();
-        if (result.success && result.data) {
-          setEmployees(
-            result.data.map((e: { employee_id: number; employee_name: string | null }) => ({
-              employee_id: e.employee_id,
-              employee_name: e.employee_name || "",
-            })),
-          );
-        }
-      };
-      fetchEmployees();
-    }
-  }, [isAdmin, pathname]);
+    // CHANGED: the employee list used to load only for admins on the Calendar.
+    // It now also loads on the Leave Requests page, for Admin and HR.
+    // Everyone else skips the request, so we do not fetch data nobody will see.
+    const needsEmployees =
+      (isAdmin && pathname === "/dashboard/calendar") ||
+      (canManageLeave && pathname === "/dashboard/leave-requests");
+    if (!needsEmployees) return;
+
+    const fetchEmployees = async () => {
+      // Server action: browser cannot query MySQL directly.
+      const result = await getEmployeesAction();
+      if (result.success && result.data) {
+        setEmployees(
+          result.data.map((e: { employee_id: number; employee_name: string | null }) => ({
+            employee_id: e.employee_id,
+            employee_name: e.employee_name || "",
+          })),
+        );
+      }
+    };
+    fetchEmployees();
+  }, [isAdmin, canManageLeave, pathname]); // CHANGED: canManageLeave added
 
   // Determine title, subtitle, and right-side controls based on path
   let title = "Dashboard";
@@ -252,6 +259,69 @@ export function SiteHeader({ isAdmin = true }: SiteHeaderProps) {
         </div>
       </div>
     );
+  } else if (pathname.startsWith("/dashboard/leave-requests")) {
+    const isList = pathname === "/dashboard/leave-requests";
+    const isNew = pathname === "/dashboard/leave-requests/new";
+    const printMatch = pathname.match(/^\/dashboard\/leave-requests\/(\d+)\/print$/);
+    const detailMatch = pathname.match(/^\/dashboard\/leave-requests\/(\d+)$/);
+
+    if (isList) {
+      title = "Leave Requests";
+      subtitle = "All requests for leave are handled here";
+
+      // The status menu and employee picker only make sense on the list,
+      // so they are only built for this page.
+      rightControls = (
+        <div className="flex items-center gap-2">
+          {/* Everyone gets the status menu, members included. */}
+          <StatusFilter options={LEAVE_STATUS_OPTIONS} />
+          {/* Only Admin and HR get the employee picker. Members only ever
+              see their own requests (the server enforces this). */}
+          {canManageLeave && (
+            <Select
+              value={searchParams.get("employee_id") || "all"}
+              onValueChange={(value) => {
+                const params = new URLSearchParams(searchParams.toString());
+                if (value === "all") {
+                  params.delete("employee_id");
+                } else {
+                  params.set("employee_id", value);
+                }
+                router.push("/dashboard/leave-requests?" + params.toString());
+              }}
+            >
+              <SelectTrigger className="w-[180px]">
+                <User className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="All Employees" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Employees</SelectItem>
+                {employees.map((emp) => (
+                  <SelectItem key={emp.employee_id} value={emp.employee_id.toString()}>
+                    {emp.employee_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      );
+    } else if (isNew) {
+      // The apply form page. No filters here, so rightControls stays empty.
+      title = "New Leave Request";
+      subtitle = "Fill in the form to request for leave";
+    } else if (printMatch) {
+      // The printable form. printMatch[1] is the request number from the address.
+      title = `Print Leave Request #${printMatch[1]}`;
+      subtitle = "Printable leave application form";
+    } else if (detailMatch) {
+      // One request's detail page. detailMatch[1] is the request number.
+      title = `Leave Request #${detailMatch[1]}`;
+      subtitle = "Review the details of this request";
+    } else {
+      // Any other address under leave-requests: keep a sensible title.
+      title = "Leave Requests";
+    }
   } else if (pathname === "/dashboard/reports") {
     title = "Reports";
   } else if (pathname === "/dashboard/settings") {

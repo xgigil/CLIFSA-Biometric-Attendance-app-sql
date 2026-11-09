@@ -9,6 +9,6 @@ A real-time logging portal and analytics console built with **Next.js 15 (App Ro
 
 This application replaces legacy Excel-based attendance exports with a live-updating, interactive control panel optimized for privileged accounts, HR administrators, and managers for payroll management.
 
+For a folder-by-folder map of the codebase (routes, data layer, roles, and conventions), see **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
 
-
-## 
+##

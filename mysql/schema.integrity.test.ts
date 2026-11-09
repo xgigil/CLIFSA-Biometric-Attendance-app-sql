@@ -11,7 +11,11 @@ const REQUIRED_TABLES = [
   "profiles",
   "hik_biometric_logs",
   "system_settings",
+  "leave_balance_pools",
+  "leave_type_policies",
   "employee_leaves",
+  "employee_leave_days",
+  "leave_applications",
   "company_holidays",
 ] as const;
 
@@ -27,7 +31,7 @@ describe("MySQL database structure", () => {
     expect(schema).not.toMatch(/CREATE TABLE IF NOT EXISTS jobs\b/);
   });
 
-  it("should link users, profiles, employees, leaves, and holidays with the correct delete rules", () => {
+  it("should link users, profiles, employees, leaves, holidays, and leave policies with the correct delete rules", () => {
     expect(schema).toContain(
       "CONSTRAINT profiles_id_fk FOREIGN KEY (id) REFERENCES users (id) ON DELETE CASCADE"
     );
@@ -35,20 +39,104 @@ describe("MySQL database structure", () => {
       "CONSTRAINT profiles_employee_fk FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE SET NULL"
     );
     expect(schema).toContain(
-      "CONSTRAINT leaves_employee_fk FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE"
+      "CONSTRAINT leaves_employee_fk"
     );
     expect(schema).toContain(
-      "CONSTRAINT leaves_created_by_fk FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL"
+      "FOREIGN KEY (employee_id) REFERENCES employees (employee_id) ON DELETE CASCADE"
+    );
+    expect(schema).toContain(
+      "CONSTRAINT leaves_leave_type_fk"
+    );
+    expect(schema).toContain(
+      "FOREIGN KEY (leave_type_id) REFERENCES leave_type_policies (id) ON DELETE RESTRICT"
+    );
+    expect(schema).toContain(
+      "CONSTRAINT leaves_created_by_fk"
+    );
+    expect(schema).toContain(
+      "FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL"
+    );
+    expect(schema).toContain(
+      "CONSTRAINT leaves_reviewed_by_fk"
+    );
+    expect(schema).toContain(
+      "FOREIGN KEY (reviewed_by) REFERENCES users (id) ON DELETE SET NULL"
     );
     expect(schema).toContain(
       "CONSTRAINT holidays_created_by_fk FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL"
     );
+    expect(schema).toContain(
+      "CONSTRAINT leave_type_policies_pool_fk"
+    );
+    expect(schema).toContain(
+      "FOREIGN KEY (pool_id) REFERENCES leave_balance_pools (id) ON DELETE RESTRICT"
+    );
+    expect(schema).toContain(
+      "CONSTRAINT employee_leave_days_leave_fk"
+    );
+    expect(schema).toContain(
+      "FOREIGN KEY (leave_id) REFERENCES employee_leaves (id) ON DELETE CASCADE"
+    );
+    expect(schema).toContain(
+      "CONSTRAINT leave_applications_leave_fk"
+    );
+    expect(schema).toContain(
+      "FOREIGN KEY (leave_id) REFERENCES employee_leaves (id) ON DELETE CASCADE"
+    );
   });
 
-  it("should seed default work start time as 09:00 and grace period as 15 minutes", () => {
+  it("should define leave status/date CHECKs and day_value CHECK", () => {
+    expect(schema).toContain("CONSTRAINT leaves_status_check");
     expect(schema).toMatch(
-      /INSERT INTO system_settings \(id, work_start_time, grace_period\)\s*VALUES \(1, '09:00', 15\)/
+      /CHECK\s*\(\s*status\s+IN\s*\(\s*'pending'\s*,\s*'approved'\s*,\s*'denied'\s*,\s*'cancelled'\s*\)\s*\)/
     );
+    expect(schema).toContain("CONSTRAINT leaves_date_range_check");
+    expect(schema).toMatch(/CHECK\s*\(\s*end_date\s*>=\s*start_date\s*\)/);
+    expect(schema).toContain("CONSTRAINT employee_leave_days_value_check");
+    expect(schema).toMatch(/CHECK\s*\(\s*day_value\s+IN\s*\(\s*0\.5\s*,\s*1\.0\s*\)\s*\)/);
+  });
+
+  it("should define unique keys for leave pools, types, day rows, and applications", () => {
+    expect(schema).toContain(
+      "UNIQUE KEY leave_balance_pools_pool_name_unique (pool_name)"
+    );
+    expect(schema).toContain(
+      "UNIQUE KEY leave_type_policies_name_unique (name)"
+    );
+    expect(schema).toContain(
+      "UNIQUE KEY employee_leave_days_unique (leave_id, leave_date)"
+    );
+    expect(schema).toContain(
+      "UNIQUE KEY leave_applications_leave_unique (leave_id)"
+    );
+  });
+
+  it("should include printable form header columns on system_settings", () => {
+    expect(schema).toContain("company_name VARCHAR(255) NULL");
+    expect(schema).toContain("company_address VARCHAR(255) NULL");
+    expect(schema).toContain("company_phones VARCHAR(255) NULL");
+    expect(schema).toContain("company_email VARCHAR(255) NULL");
+    expect(schema).toContain("form_title VARCHAR(255) NULL");
+    expect(schema).toContain("signatory_name VARCHAR(255) NULL");
+    expect(schema).toContain("signatory_title VARCHAR(255) NULL");
+  });
+
+  it("should seed default work start time, grace period, and form header placeholders", () => {
+    expect(schema).toMatch(
+      /INSERT INTO system_settings\s*\(\s*id\s*,\s*work_start_time\s*,\s*grace_period\s*,\s*company_name\s*,\s*company_address\s*,\s*company_phones\s*,\s*company_email\s*,\s*form_title\s*,\s*signatory_name\s*,\s*signatory_title\s*\)\s*VALUES\s*\(\s*1\s*,\s*'09:00'\s*,\s*15\s*,\s*'CLIFSA'\s*,\s*NULL\s*,\s*NULL\s*,\s*NULL\s*,\s*'Leave Application Form'\s*,\s*NULL\s*,\s*NULL\s*\)/
+    );
+  });
+
+  it("should seed leave balance pools and leave type policies", () => {
+    expect(schema).toMatch(/INSERT INTO leave_balance_pools/);
+    expect(schema).toContain("('Vacation', 15.0)");
+    expect(schema).toContain("('Application', 15.0)");
+    expect(schema).toContain("('Maternity', 105.0)");
+    expect(schema).toContain("('Paternity', 7.0)");
+    expect(schema).toMatch(/INSERT INTO leave_type_policies/);
+    expect(schema).toContain("'Leave w/Permission (w/o pay)'");
+    expect(schema).toContain("'Maternity Leave'");
+    expect(schema).toContain("'Paternity Leave'");
   });
 
   it("should require each user email to be unique", () => {
@@ -61,11 +149,28 @@ describe("MySQL database structure", () => {
     expect(schema).not.toMatch(/ENUM\s*\(/);
   });
 
-  it("should include indexes for leave ranges, holiday ranges, and attendance logs", () => {
-    expect(schema).toContain("KEY leaves_emp_range (employee_id, start_date, end_date)");
+  it("should include indexes for leave ranges, leave status, leave days, holiday ranges, and attendance logs", () => {
+    expect(schema).toContain(
+      "KEY leaves_emp_range (employee_id, start_date, end_date)"
+    );
+    expect(schema).toContain(
+      "KEY leaves_status_range (status, start_date, end_date)"
+    );
+    expect(schema).toContain("KEY employee_leave_days_date (leave_date)");
     expect(schema).toContain("KEY holidays_date_range (start_date, end_date)");
     expect(schema).toContain("KEY logs_date (log_date)");
     expect(schema).toContain("KEY logs_employee_date (employee_id, log_date)");
+  });
+
+  it("should use leave_type_id on employee_leaves instead of a text leave_type column", () => {
+    expect(schema).toContain("leave_type_id INT NOT NULL");
+    expect(schema).toContain("reviewed_by CHAR(36) NULL");
+    expect(schema).toContain("reviewed_at DATETIME NULL");
+    expect(schema).toContain("review_note VARCHAR(255) NULL");
+    // Fresh schema should not redefine the old text column on employee_leaves
+    expect(schema).not.toMatch(
+      /CREATE TABLE IF NOT EXISTS employee_leaves[\s\S]*leave_type VARCHAR\(32\)/
+    );
   });
 
   it("should allow the schema file to be applied more than once without errors", () => {
@@ -84,15 +189,14 @@ describe("MySQL database structure", () => {
     const sql = fs.readFileSync(holidayMigration, "utf-8");
     expect(sql).toMatch(/INSERT INTO public\.company_holidays/);
     expect(sql).toMatch(/WHERE leave_type = 'holiday'/);
-    expect(sql).toMatch(/DELETE FROM public\.employee_leaves\s*WHERE leave_type = 'holiday'/);
+    expect(sql).toMatch(
+      /DELETE FROM public\.employee_leaves\s*WHERE leave_type = 'holiday'/
+    );
     expect(sql).toMatch(/GROUP BY start_date, end_date/);
   });
 
   it("should treat mysql/schema.sql as the source of truth for the local MySQL database", () => {
-    const migrationsDir = path.resolve(
-      process.cwd(),
-      "supabase/migrations"
-    );
+    const migrationsDir = path.resolve(process.cwd(), "supabase/migrations");
     const entries = fs.readdirSync(migrationsDir);
     const phpFiles = entries.filter((f) => f.endsWith(".php"));
     const sqlFiles = entries.filter((f) => f.endsWith(".sql"));
@@ -130,10 +234,16 @@ describe("live MySQL database checks", () => {
         }
 
         const [settings] = await conn.query<any[]>(
-          "SELECT work_start_time, grace_period FROM system_settings WHERE id = 1"
+          "SELECT work_start_time, grace_period, company_name, form_title FROM system_settings WHERE id = 1"
         );
         expect(settings[0]?.work_start_time).toBe("09:00");
         expect(Number(settings[0]?.grace_period)).toBe(15);
+
+        const [vacationTypeRows] = await conn.query<any[]>(
+          "SELECT id FROM leave_type_policies WHERE name = 'Vacation' LIMIT 1"
+        );
+        const vacationTypeId = vacationTypeRows[0]?.id;
+        expect(vacationTypeId).toBeTruthy();
 
         const suffix = `${Date.now()}`.slice(-10);
         const userId = `00000000-0000-4000-8000-${suffix.padStart(12, "0")}`;
@@ -163,8 +273,8 @@ describe("live MySQL database checks", () => {
         let fkError: unknown = null;
         try {
           await conn.query(
-            "INSERT INTO employee_leaves (employee_id, start_date, end_date, leave_type, status) VALUES (?, ?, ?, 'vacation', 'approved')",
-            [999999, "2026-09-01", "2026-09-01"]
+            "INSERT INTO employee_leaves (employee_id, start_date, end_date, leave_type_id, note, status) VALUES (?, ?, ?, ?, ?, 'approved')",
+            [999999, "2026-09-01", "2026-09-01", vacationTypeId, "fk test"]
           );
         } catch (e) {
           fkError = e;
@@ -172,8 +282,15 @@ describe("live MySQL database checks", () => {
         expect(fkError).toBeTruthy();
 
         await conn.query(
-          "INSERT INTO employee_leaves (employee_id, start_date, end_date, leave_type, status, created_by) VALUES (?, ?, ?, 'vacation', 'approved', ?)",
-          [91001, "2026-09-10", "2026-09-11", userId]
+          "INSERT INTO employee_leaves (employee_id, start_date, end_date, leave_type_id, note, status, created_by) VALUES (?, ?, ?, ?, ?, 'approved', ?)",
+          [
+            91001,
+            "2026-09-10",
+            "2026-09-11",
+            vacationTypeId,
+            "integrity leave",
+            userId,
+          ]
         );
         await conn.query(
           "INSERT INTO company_holidays (start_date, end_date, note, created_by) VALUES (?, ?, ?, ?)",
@@ -225,8 +342,8 @@ describe("live MySQL database checks", () => {
           91001,
         ]);
         await conn.query(
-          "INSERT INTO employee_leaves (employee_id, start_date, end_date, status) VALUES (?, '2026-09-21', '2026-09-21', 'approved')",
-          [91001]
+          "INSERT INTO employee_leaves (employee_id, start_date, end_date, leave_type_id, note, status) VALUES (?, '2026-09-21', '2026-09-21', ?, 'cascade test', 'approved')",
+          [91001, vacationTypeId]
         );
         await conn.query("DELETE FROM employees WHERE employee_id = ?", [
           91001,

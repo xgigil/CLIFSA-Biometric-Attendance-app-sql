@@ -9,6 +9,9 @@ import {
   IconCircleXFilled,
   IconCalendar,
   IconFlag,
+  IconClockFilled,
+  IconBan,
+  type Icon,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,35 +22,62 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const FILTERABLE_STATUSES = [
-  "present",
-  "late",
-  "absent",
-  "on_leave",
-  "holiday",
-] as const;
-type FilterStatus = (typeof FILTERABLE_STATUSES)[number];
+// CHANGED: this one component now serves every page that has a status menu.
+// Each page tells it WHICH statuses to show by passing a list ("options").
+// To add a status menu to a new page, add a list below and pass it in.
+export type StatusOption = {
+  value: string; // the text saved in the web address, e.g. ?status=on_leave
+  label: string; // the text people see in the menu
+  icon: Icon; // the small icon beside the label
+  iconClassName: string; // the icon's color
+};
 
-export function StatusFilter() {
+// Used by Daily Logs. This is the default, so <StatusFilter /> works exactly as before.
+export const ATTENDANCE_STATUS_OPTIONS: StatusOption[] = [
+  { value: "present", label: "Present", icon: IconCircleCheckFilled, iconClassName: "text-emerald-500" },
+  { value: "late", label: "Late", icon: IconAlarmFilled, iconClassName: "text-orange-500" },
+  { value: "absent", label: "Absent", icon: IconCircleXFilled, iconClassName: "text-rose-500" },
+  { value: "on_leave", label: "On Leave", icon: IconCalendar, iconClassName: "text-blue-500" },
+  { value: "holiday", label: "Holiday", icon: IconFlag, iconClassName: "text-slate-600 dark:text-slate-400" },
+];
+
+// Used by Leave Requests. These values must match the statuses saved
+// in the database (see APPLICATION_STATUSES in leave-requests/_lib/errors.ts).
+export const LEAVE_STATUS_OPTIONS: StatusOption[] = [
+  { value: "pending", label: "Pending", icon: IconClockFilled, iconClassName: "text-amber-500" },
+  { value: "approved", label: "Approved", icon: IconCircleCheckFilled, iconClassName: "text-emerald-500" },
+  { value: "denied", label: "Denied", icon: IconCircleXFilled, iconClassName: "text-rose-500" },
+  { value: "cancelled", label: "Cancelled", icon: IconBan, iconClassName: "text-slate-600 dark:text-slate-400" },
+];
+
+export function StatusFilter({
+  options = ATTENDANCE_STATUS_OPTIONS,
+}: {
+  options?: StatusOption[];
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const allValues = React.useMemo(() => options.map((o) => o.value), [options]);
+
+  // Which boxes are ticked is stored in the web address, for example
+  // ?status=pending,approved. If there is no "status" in the address,
+  // every box is ticked, which means "show everything".
   const selectedStatuses = React.useMemo(() => {
     const statusParam = searchParams.get("status");
     if (!statusParam) {
-      return new Set<FilterStatus>(FILTERABLE_STATUSES);
+      return new Set<string>(allValues);
     }
-    return new Set<FilterStatus>(
-      statusParam
-        .split(",")
-        .filter((s): s is FilterStatus =>
-          FILTERABLE_STATUSES.includes(s as FilterStatus)
-        )
+    // Ignore any value that is not in this menu's list (the address can be edited by hand).
+    return new Set<string>(
+      statusParam.split(",").filter((s) => allValues.includes(s))
     );
-  }, [searchParams]);
+  }, [searchParams, allValues]);
 
-  const handleToggle = (status: FilterStatus) => {
+  // Runs when someone ticks or unticks a box. It updates the web address,
+  // and the page reloads its list from the new address.
+  const handleToggle = (status: string) => {
     const newSelected = new Set(selectedStatuses);
     if (newSelected.has(status)) {
       newSelected.delete(status);
@@ -57,7 +87,9 @@ export function StatusFilter() {
 
     const params = new URLSearchParams(searchParams.toString());
 
-    if (newSelected.size === FILTERABLE_STATUSES.length) {
+    // Everything ticked is the same as no filter, so we remove "status"
+    // from the address to keep it clean.
+    if (newSelected.size === allValues.length) {
       params.delete("status");
     } else {
       params.set("status", Array.from(newSelected).join(","));
@@ -80,47 +112,17 @@ export function StatusFilter() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-36">
         <DropdownMenuLabel>Status</DropdownMenuLabel>
-        <DropdownMenuCheckboxItem
-          checked={selectedStatuses.has("present")}
-          onCheckedChange={() => handleToggle("present")}
-        >
-          <IconCircleCheckFilled
-            size={14}
-            className="text-emerald-500 shrink-0"
-          />
-          Present
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem
-          checked={selectedStatuses.has("late")}
-          onCheckedChange={() => handleToggle("late")}
-        >
-          <IconAlarmFilled size={14} className="text-orange-500 shrink-0" />
-          Late
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem
-          checked={selectedStatuses.has("absent")}
-          onCheckedChange={() => handleToggle("absent")}
-        >
-          <IconCircleXFilled size={14} className="text-rose-500 shrink-0" />
-          Absent
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem
-          checked={selectedStatuses.has("on_leave")}
-          onCheckedChange={() => handleToggle("on_leave")}
-        >
-          <IconCalendar size={14} className="text-blue-500 shrink-0" />
-          On Leave
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem
-          checked={selectedStatuses.has("holiday")}
-          onCheckedChange={() => handleToggle("holiday")}
-        >
-          <IconFlag
-            size={14}
-            className="text-slate-600 dark:text-slate-400 shrink-0"
-          />
-          Holiday
-        </DropdownMenuCheckboxItem>
+        {/* CHANGED: one checkbox row per option, instead of five hand-written rows. */}
+        {options.map(({ value, label, icon: StatusIcon, iconClassName }) => (
+          <DropdownMenuCheckboxItem
+            key={value}
+            checked={selectedStatuses.has(value)}
+            onCheckedChange={() => handleToggle(value)}
+          >
+            <StatusIcon size={14} className={`${iconClassName} shrink-0`} />
+            {label}
+          </DropdownMenuCheckboxItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

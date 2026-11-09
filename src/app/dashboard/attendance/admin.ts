@@ -1,21 +1,41 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import {
+  type AppRole,
+  isAdminRole,
+  isAdminOrHrRole,
+  canManageLeaveandHolidays,
+} from "./roles";
 
-export async function checkIsAdmin(
-  db: Awaited<ReturnType<typeof createClient>>
-): Promise<boolean> {
-  const {
-    data: { user },
-  } = await db.auth.getUser();
-  if (!user) return false;
+export type { AppRole };
+export { isAdminRole, isAdminOrHrRole, canManageLeaveandHolidays };
+
+type Db = Awaited<ReturnType<typeof createClient>>;
+
+async function getCurrentUserRole(db: Db): Promise<string | null | undefined> {
+  const { data: { user } } = await db.auth.getUser();
+  if (!user) return null;
 
   const { data: profile } = await db
     .from("profiles")
-    .select("role")
+    .select("role, status")
     .eq("id", user.id)
     .single();
 
-  return profile?.role === "admin";
+  const row = profile as { role?: string | null; status?: string | null; } | null;
+  if (!row || row.status !== "approved") return null;
+
+  return row.role;
+}
+
+// Used by Admin only permissions
+export async function checkIsAdmin(db: Db): Promise<boolean> {
+  return isAdminRole(await getCurrentUserRole(db));
+}
+
+// Used by Admin and HR only permissions: leave / holiday management.
+export async function checkIsAdminOrHr(db: Db): Promise<boolean> {
+  return isAdminOrHrRole(await getCurrentUserRole(db));
 }
 
 export const ATTENDANCE_PATHS = [

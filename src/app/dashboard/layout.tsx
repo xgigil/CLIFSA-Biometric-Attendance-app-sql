@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { MarkSessionRedirected } from "@/components/mark-session-redirected";
+import { isAdminOrHrRole } from "@/app/dashboard/attendance/roles";
 
 export default async function Layout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -35,10 +36,13 @@ export default async function Layout({ children }: { children: React.ReactNode }
         <Suspense fallback={
           <header className="flex h-17.25 shrink-0 items-center gap-2 border-b w-full bg-background transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-14.25" />
         }>
-          <SiteHeader isAdmin={sidebarUser.role === "admin"} />
+          <SiteHeader
+            isAdmin={sidebarUser.role === "admin"}
+            canManageLeave={isAdminOrHrRole(sidebarUser.role)}
+          />
         </Suspense>
 
-        <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );

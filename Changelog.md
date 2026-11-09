@@ -1,5 +1,364 @@
 # Changelog
 
+## [1.1.6] - Leave Application Phase 6 (Settings: pools, types, form header)
+
+Phase 6 adds Settings editors so Admin/HR can change leave pool allotments, manage
+leave types, and edit the printable leave-form letterhead.
+
+### Added
+
+* **Leave policy settings actions** (`src/app/dashboard/settings/leave-settings/leave-policy-actions.ts`)
+  * `getLeavePolicySettingsAction`: one load of pools, leave types, and form header.
+    Admin/HR only.
+  * `updatePoolAllotmentAction`: annual allotment only (0–9999.9, one decimal).
+    Pool names are not editable here.
+  * `addLeaveTypeAction`, `updateLeaveTypeAction` (rename and/or move pool),
+    `setLeaveTypeActiveAction`, `deleteLeaveTypeAction`.
+  * Delete is allowed only when no `employee_leaves` row uses the type; otherwise
+    the action tells the user to deactivate. Deactivate hides the type from Apply
+    and Set Leave; approved days still count toward the pool.
+  * Moving a type to another pool changes which pool is charged on the next
+    balance read. Filed form snapshots are unchanged.
+  * `updateLeaveFormHeaderAction`: saves the seven letterhead fields on
+    `system_settings`. Blank / paper-default text is stored as `NULL` so print
+    uses `FORM_HEADER_FALLBACKS`.
+  * Revalidates `/dashboard`, leave-requests list layout, and `/new`.
+
+* **Settings UI** (`src/app/dashboard/settings/`)
+  * `leave-settings/leave-rules-section.tsx`: **Leave Rules** — pool allotment
+    table; leave-type table (name, pool, active/inactive, save, deactivate,
+    delete); add-type row. Warns when a pool move is about to be saved.
+  * `leave-settings/form-header-section.tsx`: **Leave Form Header** — company
+    name, address, phones, email, form title, signatory name/title, with its
+    own **Save Header** button (not the page-level Save Changes).
+  * `page.tsx`: Admin still sees shift rules and workspace members. Admin **or**
+    HR (`showLeaveSettings`) see Leave Rules and Leave Form Header.
+
+### Updated
+
+* Print and apply continue to read `system_settings` / active types; Settings is
+  now the editor for those values (Phase 4 deferred the header UI here).
+* Logo remains `public/clifsa-logo.png` (upload-from-Settings not in this phase).
+
+### Notes / limitations (future improvements)
+
+* **No new pools from UI:** allotment only; pool rows stay seed/SQL.
+* **No logo upload** in Settings yet.
+* **No dedicated leave-policy action tests** colocated under `leave-settings/` yet.
+* **No HR role assignment UI** yet; workspace roles in Settings stay Admin / Member.
+* **No employee position columns** in the UI yet.
+
+## [1.1.5] - Leave Application Phase 5 (approve, deny, balances)
+
+Phase 5 lets Admin/HR approve or deny a pending leave application. Approval and denial only
+update `employee_leaves` (`status`, `reviewed_by`, `reviewed_at`, `review_note`). Day rows and
+the form snapshot are left as filed. Approved days then reduce the pool balance. Denied days
+do not. Members see their own remaining balances on the home dashboard.
+
+### Added
+
+* **Review action** (`src/app/dashboard/leave-requests/review-actions.ts`)
+  * `reviewLeaveRequestAction({ leaveId, decision, review_note })`. Decision is `approved` or `denied`.
+  * Admin/HR only. A missing application, a leave with no form row (Set Leave), or a status other
+    than `pending` is rejected. The `UPDATE` also requires `status = 'pending'`, so a leave that
+    was approved, denied, or deleted in between is left unchanged.
+  * Approve fails when another **approved** leave for that employee already covers the range
+    (`hasApprovedOverlap` in `_lib/queries.ts`, excluding this leave).
+  * Approve re-checks the start-year balance. If remaining is lower than this application's
+    `leave_taken`, the leave is still approved and the result includes `balanceWarning`.
+    Deny skips the overlap check and the balance check.
+  * Optional review note, trimmed, maximum 255 characters.
+  * Revalidates attendance paths and `/dashboard/leave-requests`.
+
+* **Detail review UI** (`src/app/dashboard/leave-requests/[id]/`)
+  * `review-panel.tsx`: Approve and Deny for Admin/HR while the application is pending, with an
+    optional note and a confirm step. A low balance shows a warning toast and keeps the approval.
+    Delete pending stays here for Admin/HR.
+  * `detail-actions.tsx`: Back to the list and Print.
+  * The detail page keeps the filed Beginning / Taken / Allowable block as a snapshot and adds a
+    live "Remaining balance this year" line for that leave type's pool.
+
+* **Balance read** (`getEmployeeLeaveBalancesAction` in `read-actions.ts`)
+  * One row per leave pool for an employee and year (current year when omitted): pool name,
+    allotment, approved days used, and remaining. Remaining can be negative.
+  * A member can read only their linked employee. Admin/HR can read any employee.
+
+* **Member home balances** (`src/app/dashboard/page.tsx`, `employee-dashboard-view.tsx`)
+  * The employee dashboard loads that member's pools and shows **My Leave Balances**: pool name,
+    days left, used, and allotment. Pools with no allotment and no use are hidden.
+  * The admin attendance dashboard is unchanged and has no balance cards.
+
+* **Shared confirm dialog** (`src/components/confirm-dialog.tsx`), used by review and by the apply form.
+
+### Updated
+
+* **`_lib/errors.ts`:** review messages — Admin/HR only, decision must be approved or denied,
+  only pending can be reviewed, note length, approved-leave overlap, and the review catch-all.
+* **`_lib/queries.ts`:** `hasApprovedOverlap` for approve. Submit still uses `hasApplicationOverlap`
+  (pending or approved).
+* **Dashboard header** (`site-header.tsx`, `dashboard/layout.tsx`): Leave Requests uses the leave
+  status filter. Admin/HR (`canManageLeave`) also get the employee picker on the leave list.
+* **Apply confirm copy** states that a pending request does not reduce the balance until it is approved.
+
+### Tests
+
+* `leave-requests/actions.test.ts`: a member cannot review; Admin/HR can approve; bad decision,
+  note over 255, non-pending, and a zero-row update use the review error strings; an approved
+  overlap does not update; deny sets `denied` and skips the balance query; review does not
+  insert or delete day or form rows; a low balance still approves and returns `balanceWarning`;
+  balance reads enforce own-employee vs Admin/HR and query approved days only.
+* `employee-dashboard-view.test.tsx`: balance card hidden when empty, shown with remaining / used /
+  allotment, and a negative remaining stays visible.
+* `site-header.test.tsx`: leave list title, member has no employee picker, Admin/HR load the
+  employee list, and the new / detail / print titles.
+* Year-split math stays in `src/utils/leave-balance.test.ts`. Pending and denied rows are excluded
+  because the balance query filters `status = 'approved'`.
+
+### Notes / limitations (future improvements)
+
+* **Reject status** in the database is `denied`.
+* **Over-balance approve** is allowed. The warning is returned to the reviewer; it does not block.
+* **Approved overlap** is a hard fail and does not change the row.
+* **Set Leave** rows have no form row, so they are not reviewed here.
+* **Admin/HR balance lookup:** `getEmployeeLeaveBalancesAction` can return every pool for any employee, but no
+  screen calls it that way. The full pool list (**My Leave Balances**) is only on the member home dashboard, for the signed-in user's own employee. An admin home is the attendance dashboard and does not show balances. The employee menu on the leave list only filters applications. An admin or HR user can still see one number for someone else by opening that person's leave request: **Remaining balance this year** is that request's leave type and start year, not every pool.
+* **Still later:** editing a pending application, Settings editors for pools, types, and the form
+  header (Phase 6), Set Leave polish (Phase 7), HR role assignment and employee position columns
+  (Phase 8).
+
+## [1.1.4] - Leave Application Phase 4 (apply, list, detail, print)
+
+Phase 4 adds a separate **Leave Requests** area where employees file leave applications and
+Admin/HR file them on an employee's behalf. Applications are created as `pending`. They do not
+affect the calendar, attendance, or balances until approval (Phase 5).
+**Set Leave is unchanged** and stays a separate Admin/HR tool that creates `approved` leaves
+with no form row.
+
+### Added
+
+* **Leave Requests pages** (`src/app/dashboard/leave-requests/`)
+  * List (`/dashboard/leave-requests`): pending applications first and highlighted,
+    status filter, Admin/HR employee filter, "Apply for Leave" button.
+  * Apply (`/new`): editable name, read-only date filed, position / department, leave type
+    checklist from active types, required reason, From / To dates, half-day toggle with a
+    per-day tick list when the range has 2+ workdays, live Total # of Days, and live
+    Beginning Balance / Leave Taken / Allowable Leave before submit.
+    Admin/HR pick any employee; a Member is locked to their linked employee.
+  * Detail (`/[id]`): read-only form data, counted days, balance snapshot. Admin/HR can delete
+    a pending application (inline confirm; Back and Print are hidden while confirming).
+  * Print (`/[id]/print`): follows the paper form: CLIFSA logo and header with the blue/gold bar
+    beside the logo, LN#, name / position / date filed / dept, **only the selected leave type**
+    (ticked), Personal Action, Leave Request Date, reason, signature lines. Two identical copies
+    on one A4 sheet; sidebar and buttons are hidden when printing.
+
+* **Server actions, organized by job** (`src/app/dashboard/leave-requests/`)
+  * `actions.ts` (writes): `submitLeaveApplicationAction` writes the `pending` leave, its
+    `employee_leave_days` rows, and the `leave_applications` row (with balance snapshots)
+    in one transaction; `previewLeaveDaysAction` returns read-only totals and balances for the
+    form; `deletePendingApplicationAction` removes a pending application.
+  * `read-actions.ts` (reads): `listLeaveApplicationAction`, `getLeaveApplicationDetailAction`.
+  * `_lib/` (shared, not a route): `errors.ts` (messages and statuses), `caller.ts` (signed-in
+    user, role, linked employee, access rule), `queries.ts` (overlap, holiday dates, active
+    type), `insert-application.ts` (the transaction).
+  * Members can only act for their own linked employee; Admin/HR can act for anyone.
+    Only Admin/HR can delete, and only while the application is `pending`.
+  * Each later phase adds its actions in a new file (review, balances) that reuses `_lib/`.
+
+* **Leave balance helper** (`src/utils/leave-balance.ts`)
+  * `getLeaveBalance`, `getLeaveBalanceForLeaveType`, `resolvePoolIdForLeaveType`,
+    `computeRemainingBalance`, `computeApplicationSnapshots`.
+  * Remaining = pool allotment - approved day rows dated in the calendar year.
+    Pending, denied, and cancelled leaves do not reduce the balance. Negative remaining
+    is allowed so over-use stays visible.
+
+* **Sidebar:** "Leave Requests" entry in the main menu for all signed-in roles.
+
+### Updated
+
+* **Role helpers** moved to `src/app/dashboard/attendance/roles.ts` (no server-only imports,
+  safe for client components). `admin.ts` re-exports them, so existing imports keep working.
+* **`src/components/app-sidebar.tsx`:** added Leave Requests. Set Leave / Set Holiday remain
+  in the separate Admin/HR "Leave & Holiday" group.
+
+### Tests
+
+* `src/utils/leave-balance.test.ts`: allotment, usage, year bounds, snapshots, error cases.
+* `leave-requests/actions.test.ts`: required reason, overlap with pending or approved,
+  half-day rows and `leave_taken` snapshot, Member vs Admin/HR, transaction write and rollback,
+  delete rules, list scoping, detail ownership.
+* `leave-requests/[id]/print/page.test.tsx`: selected type only, two copies, snapshot values.
+
+### Notes / limitations (future improvements)
+
+* **Holidays:** unlike Set Leave, applications do **not** reject a range that touches a company
+  holiday. Holidays inside the range are skipped by the day calculator and not charged.
+  A range with no counted workdays (weekends / holidays only) is rejected.
+* **Overlap:** applications are blocked by existing `pending` **or** `approved` leaves
+  (Set Leave still checks `approved` only). The check runs once up front and again inside the
+  transaction under a row lock on the employee, so simultaneous submits for the same dates
+  cannot both succeed. The apply-form preview does not run the overlap check, so an overlap
+  error appears on submit.
+* **Year-spanning leaves:** `beginning_balance` is taken from the start year, while
+  `leave_taken` covers all days. Day rows still charge each year correctly.
+* **Form header:** print reads `system_settings` and falls back to the paper form's text only
+  when a column is `NULL`. Existing databases seeded with `company_name = 'CLIFSA'` need
+  an `UPDATE` to show the full name. The editor UI comes in Phase 6.
+* **Logo:** served from `public/clifsa-logo.png`.
+* **Position / department** are typed on the form (no employee columns until Phase 8).
+* **Pending applications cannot be edited**; delete and re-apply instead.
+* **Not yet:** approve / reject (Phase 5), balances on the dashboard (Phase 5), Settings
+  editors for pools, types, and header (Phase 6), Set Leave polish (Phase 7).
+
+## [1.1.3] - Leave Application Phase 3 (Admin or HR permissions)
+
+Phase 3 adds permission helpers so leave and holiday management accept **Admin or HR**.
+Admin still owns Settings, user management, and attendance CRUD. Assigning the HR role in
+Settings UI is deferred to Phase 8; until then promote a user with SQL (`profiles.role = 'hr'`)
+to exercise the HR path.
+
+### Added
+
+* **Role helpers** (`src/app/dashboard/attendance/admin.ts`)
+  * `AppRole`, `isAdminRole`, `isAdminOrHrRole`, `canManageLeaveandHolidays`.
+  * `checkIsAdminOrHr` for leave/holiday write gates; `checkIsAdmin` unchanged for Admin-only paths.
+  * Unit tests covering admin, hr, member, signed-out, and null profile.
+
+### Updated
+
+* **Leave / holiday writes**
+  * `setLeaveAction`, `setLeaveForAllAction`, `removeLeaveAction`, `setHolidayAction`, and
+    `removeHolidayAction` use `checkIsAdminOrHr`.
+  * Unauthorized message: `"Unauthorized access. Admin or HR privileges required."`
+
+* **Sidebar chrome** (`src/components/app-sidebar.tsx`)
+  * Add Attendance remains Admin-only.
+  * Set Leave / Set Holiday shown for Admin or HR via `isAdminOrHrRole`.
+  * Layout already passes `profiles.role` into the sidebar (no layout change).
+
+* **Tests**
+  * Leave and holiday action tests updated for the new unauthorized copy; HR-allowed cases as covered.
+
+### Notes / limitations (future improvements)
+
+* **HR role assignment UI:** Settings still only offers Admin / Member (Phase 8).
+* **HR org views:** Dashboard / calendar / site-header day nav stay Admin-only until later phases.
+* **Attendance CRUD** stays Admin-only.
+* No schema migration — `profiles.role` is already `VARCHAR(32)` and accepts `hr`.
+
+## [1.1.2] - Leave Application Phase 2 (workday calculator, day rows, holiday guard)
+
+Phase 2 builds on Phase 1. Approach: **extend** existing Set Leave / Set Holiday flows.
+Direct Set Leave still creates `approved` leaves and does not create `leave_applications` rows.
+
+### Added
+
+* **Workday calculator** (`src/utils/leave-day-calculator.ts`)
+  * Builds counted leave day rows (skip weekends and company holidays; optional half-days).
+  * Unit tests for weekdays, weekends, holidays, half-days, and year-end spans.
+
+* **Day rows on Set Leave**
+  * Set Leave / Set Leave for All insert matching `employee_leave_days` in the same DB transaction as the leave header.
+  * Empty counted-day ranges (all weekends/holidays) still create the leave header for calendar range display.
+  * Reason / note is required on Set Leave (UI + server validation).
+
+* **Legacy backfill**
+  * One-shot script: `mysql/scripts/backfill-leave-days.mjs`
+    * Populates `employee_leave_days` for existing leaves that have zero day rows (skip weekends + company holidays; `day_value = 1.0`).
+    * Also backfills `reviewed_by` / `reviewed_at` from `created_by` / `created_at` where `reviewed_at IS NULL`.
+    * Idempotent: safe to re-run (`INSERT IGNORE` + unique `(leave_id, leave_date)`; reviewed UPDATE only touches null `reviewed_at`).
+    * Supports `--dry-run`. Not a migration runner — run manually from the project root after Phase 2 app code is deployed.
+  * Optional Workbench SQL: `mysql/schema_v1.1.2_optional.sql` for the same `reviewed_*` UPDATE if preferred over the script.
+
+### Updated
+
+* **Holiday conflict guard**
+  * Set Holiday blocked by overlapping `pending` or `approved` leave (not only approved).
+  * Error message names affected employees, dates, and status (capped list; fail-closed on query errors).
+
+* **Tests**
+  * Leave actions: day-row inserts, weekend skip, txn rollback, required note.
+  * Holiday actions: pending blocks; denied/cancelled do not; named error text; fail-closed on DB errors.
+
+### Notes / limitations (future improvements)
+
+* **Backfill:** Use `mysql/scripts/backfill-leave-days.mjs` once per database (dry-run first). It is one-shot and idempotent; re-running should not duplicate day rows or re-stamp already-reviewed leaves.
+* **`reviewed_*`:** Backfilled for legacy Set Leave rows via the script and/or `mysql/schema_v1.1.2_optional.sql`. App UI does not use these fields yet (approve/reject comes in a later phase).
+* **Calendar / attendance:** Still treat leave as a date **range** (`buildLeaveIndex` / `isOnLeave`), not `employee_leave_days`. Day rows are for counted workdays and future balances only — display does not switch to day rows in Phase 2.
+* Leave writes are hybrid: reads/guards still use the query-builder client; multi-table inserts use a raw MySQL transaction. A later cleanup could unify write paths on one style.
+* Set Leave still **rejects** any range that overlaps a company holiday entirely. The calculator can skip holiday dates inside a range; that path is mainly for backfill and later application flows unless the hard holiday block is relaxed.
+* No half-day toggle in Set Leave UI yet (calculator supports `0.5` for Phase 4+).
+* No leave application form, print, approve/reject, or `getLeaveBalance` UI (later phases).
+* No automated migration runner; schema/backfill remain manual Workbench / one-shot script.
+
+## [1.1.1] - Leave Application Phase 1 (database foundation + leave type policies)
+
+Phase 1 only. Direct Set Leave still creates `approved` leaves. Day rows and leave applications are not written yet (Phase 2+).
+
+### Added
+
+* **Leave balance pools and leave type policies.**
+
+  * New `leave_balance_pools` table with seeded allotments: Vacation (15), Application (15), Maternity (105), Paternity (7).
+  * New `leave_type_policies` table linking named leave types to pools (`Vacation`, `Sick Leave`, `Enrollment`, `Birthday`, `Leave w/Permission (w/o pay)`, `Other`, `Maternity Leave`, `Paternity Leave`).
+
+* **Leave day and application tables (schema only).**
+
+  * New `employee_leave_days` table for counted workday rows (`leave_id`, `leave_date`, `day_value`).
+  * New `leave_applications` table for future printed-form snapshots.
+  * Phase 1 does **not** insert into either table from Set Leave.
+
+* **Leave application form header columns on `system_settings`.**
+
+  * Added nullable `company_name`, `company_address`, `company_phones`, `company_email`, `form_title`, `signatory_name`, `signatory_title`.
+  * Seeded defaults for company name and form title; Settings UI still edits only work start / grace period.
+
+* **Manual Workbench migration script.**
+
+  * `mysql/schema_v1.1.1_migration_updates.sql` for existing databases (pools, types, `leave_type_id` backfill, drop text `leave_type`, new tables).
+
+### Updated
+
+* **`employee_leaves` schema.**
+
+  * Replaced text `leave_type` with required `leave_type_id` FK to `leave_type_policies`.
+  * Added review fields: `reviewed_by`, `reviewed_at`, `review_note`.
+  * Kept default `status = 'approved'` for direct Set Leave compatibility.
+  * Added status / date-range checks and status range index where applied.
+
+* **`mysql/schema.sql`**
+
+  * Source of truth updated for fresh installs to match the Phase 1 shape and seeds.
+
+* **`src/app/dashboard/leaves/actions.ts`**
+
+  * Payloads use `leave_type_id` instead of string `leave_type`.
+  * Added `getActiveLeaveTypesAction()` and default Vacation type resolution by name (not hard-coded ids).
+  * `getLeavesForRangedAction` returns `leave_type_name` via a policies map (no SQL joins).
+  * Removed holiday-as-leave-type string guards; holidays remain a separate table.
+  * Set Leave still inserts `status = 'approved'` and does not write day rows or applications.
+
+* **Leave dialogs**
+
+  * `set-leave-dialog.tsx` / `edit-day-dialog.tsx`: load active policies on open, submit `leave_type_id`, display `leave_type_name`.
+  * `remove-leave-dialog.tsx`: display `leave_type_name` instead of legacy text `leave_type`.
+
+* **Calendar display**
+
+  * `calendar/page.tsx`: selects `leave_type_id` and resolves names from `leave_type_policies`.
+  * `employee-attendance-calendar.tsx`: shows `leave_type_name` instead of hard-coded `LEAVE_TYPE_LABELS`.
+  * `attendance-processor.ts`: `LeaveRow` uses `leave_type_id` / `leave_type_name`.
+
+* **Tests**
+
+  * `mysql/schema.integrity.test.ts`: asserts new tables, FKs, settings header columns, and `leave_type_id`.
+  * `leaves/actions.test.ts`: payloads and insert expectations use `leave_type_id`; holiday-as-leave-type case replaced with invalid/unresolved leave type.
+
+### Notes / non-goals (still Phase 2+)
+
+* No `employee_leave_days` writes from Set Leave yet.
+* No leave application form, print, approve/reject, or balance UI.
+* Settings editors for pools, types, and form header wait for later phases.
+
 ## [1.0.4] - Leave and holiday details on the calendar
 
 ### Added

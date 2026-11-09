@@ -103,13 +103,6 @@ function dayKey(value: string | null | undefined): string {
   return (value ?? "").substring(0, 10);
 }
 
-const LEAVE_TYPE_LABELS: Record<string, string> = {
-  vacation: "Vacation",
-  sick: "Sick Leave",
-  unpaid: "Unpaid Leave",
-  other: "Other",
-};
-
 function findLeaveForDay(leaves: LeaveRow[], employeeId: number, date: string) {
   const day = dayKey(date);
   return (
@@ -411,7 +404,7 @@ const holidayForDay =
                   ) : cellLeave ? (
                     <>
                       <div className="text-muted-foreground truncate">
-                        {LEAVE_TYPE_LABELS[cellLeave.leave_type ?? "vacation"] ?? "Vacation"}
+                        {cellLeave.leave_type_name || "Unknown"}
                       </div>
                       {cellLeave.note?.trim() && (
                         <div className="text-[10px] font-medium text-foreground/80 truncate">
@@ -514,7 +507,7 @@ const holidayForDay =
                     <div>
                       <span className="text-xs text-muted-foreground">Reason for Leave</span>
                       <div className="mt-1.5 text-sm font-semibold text-foreground">
-                        {LEAVE_TYPE_LABELS[leaveForDay.leave_type ?? "vacation"] ?? "Vacation"}
+                        {leaveForDay.leave_type_name || "Unknown"}
                       </div>
                     </div>
                     {leaveForDay.note?.trim() && (
