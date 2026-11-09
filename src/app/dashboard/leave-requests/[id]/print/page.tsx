@@ -3,23 +3,13 @@ import { Button } from "@/components/ui/button";
 import { getLeaveApplicationDetailAction } from "../../read-actions";
 import { PrintButton } from "./print-button";
 import { formatFormDate, formatDays, type ApplicationDetail } from "../../format";
+import { FORM_HEADER_FALLBACKS } from "../../form-header";
 
 // Path to the logo image file.
 const LOGO_SRC: string | null = "/clifsa-logo.png";
 
 const FONT = 'Calibri, Carlito, "Segoe UI", Arial, sans-serif';
 const NARROW_FONT = '"Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif';
-
-// Used only when system_settings has NULL for a field.
-const FALLBACKS = {
-  company_name: "COOP LIFE GENERAL INSURANCE AND FINANCIAL SERVICE AGENCY (CLIFSA)",
-  company_address: "CLIFSA Building, M.H. Del Pilar, Barangay 17, Cagayan de Oro City, Philippines",
-  company_phones: "Tele/Fax: (088) 8565644 | Mobile: 0917 852 8609",
-  company_email: "clifsa_cdo@yahoo.com",
-  form_title: "LEAVE APPLICATION",
-  signatory_name: "HENRY M. LOPEZ",
-  signatory_title: "CEO",
-};
 
 function Row({
   label,
@@ -57,13 +47,13 @@ function Row({
 function FormCopy({ data }: { data: ApplicationDetail }) {
   const { leave, application, settings } = data;
   const s = {
-    company_name: settings?.company_name || FALLBACKS.company_name,
-    company_address: settings?.company_address || FALLBACKS.company_address,
-    company_phones: settings?.company_phones || FALLBACKS.company_phones,
-    company_email: settings?.company_email || FALLBACKS.company_email,
-    form_title: settings?.form_title || FALLBACKS.form_title,
-    signatory_name: settings?.signatory_name || FALLBACKS.signatory_name,
-    signatory_title: settings?.signatory_title || FALLBACKS.signatory_title,
+    company_name: settings?.company_name || FORM_HEADER_FALLBACKS.company_name,
+    company_address: settings?.company_address || FORM_HEADER_FALLBACKS.company_address,
+    company_phones: settings?.company_phones || FORM_HEADER_FALLBACKS.company_phones,
+    company_email: settings?.company_email || FORM_HEADER_FALLBACKS.company_email,
+    form_title: settings?.form_title || FORM_HEADER_FALLBACKS.form_title,
+    signatory_name: settings?.signatory_name || FORM_HEADER_FALLBACKS.signatory_name,
+    signatory_title: settings?.signatory_title || FORM_HEADER_FALLBACKS.signatory_title,
   };
   const contactLine = [s.company_phones, s.company_email ? `Email: ${s.company_email}` : ""]
     .filter(Boolean)

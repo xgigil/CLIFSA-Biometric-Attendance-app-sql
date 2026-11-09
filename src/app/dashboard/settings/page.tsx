@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { AuthUser } from "@/lib/db-client";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +34,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { AppRole } from "@/app/dashboard/attendance/roles";
+import {
+  getLeavePolicySettingsAction,
+  type LeavePool,
+  type LeaveTypePolicy,
+  type LeaveFormHeader,
+} from "./leave-settings/leave-policy-actions";
+import { LeaveRulesSection } from "./leave-settings/leave-rules-section";
+import { FormHeaderSection } from "./leave-settings/form-header-section";
 
 // Default settings state
 const defaultSettings = {
@@ -78,7 +87,7 @@ export default function SettingsPage() {
   const { setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [settings, setSettings] = useState(defaultSettings);
-  const [role, setRole] = useState<"admin" | "member" | null>(null);
+  const [role, setRole] = useState<AppRole | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [profiles, setProfiles] = useState<MemberProfile[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -89,6 +98,9 @@ export default function SettingsPage() {
   const [isUpdatingEmployee, setIsUpdatingEmployee] = useState<string | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null);
   const [userToDelete, setUserToDelete] = useState<MemberProfile | null>(null);
+  const [leavePolicy, setLeavePolicy] = useState<{ pools: LeavePool[]; types: LeaveTypePolicy[]; header: LeaveFormHeader; } | null>(null);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  const [isLoadingLeave, setIsLoadingLeave] = useState(false);
 
   const updateSetting = (key: keyof typeof defaultSettings, value: string) => {
     setSettings((prev) => ({
@@ -96,6 +108,25 @@ export default function SettingsPage() {
       [key]: value,
     }));
   };
+
+  // Loads (or reloads) the leave rules. Used three times: on first load,
+  // by the sections after every successful save (onChanged), and by Retry.
+  const loadLeavePolicy = useCallback(async () => {
+    setIsLoadingLeave(true);
+    try {
+      const res = await getLeavePolicySettingsAction();
+      if (res.success) {
+        setLeavePolicy(res.data);
+        setLeaveError(null);
+      } else {
+        setLeaveError(res.error);
+      }
+    } catch (e) {
+      setLeaveError(e instanceof Error ? e.message : "Failed to load leave rules.");
+    } finally {
+      setIsLoadingLeave(false);
+    }
+  }, []);
 
   useEffect(() => {
     // Load local settings
@@ -124,6 +155,11 @@ export default function SettingsPage() {
           setRole(data.role);
           setProfiles(data.profiles);
           setEmployees(data.employees);
+          
+          if (data.role === "admin" || data.role === "hr") {
+            void loadLeavePolicy();
+          }
+
           if (data.sysSettings) {
             setSettings((prev) => ({
               ...prev,
@@ -145,7 +181,7 @@ export default function SettingsPage() {
     };
 
     fetchUserAndProfiles();
-  }, []);
+  }, [loadLeavePolicy]);
 
   if (!mounted) {
     return <SettingsLoading />;
@@ -329,6 +365,7 @@ export default function SettingsPage() {
   };
 
   const showAdminSettings = role === "admin";
+  const showLeaveSettings = role === "admin" || role === "hr";
 
   return (
     <div className="max-w-7xl mx-auto p-6 md:p-10 space-y-10 bg-background min-h-full animate-fade-in">
@@ -496,6 +533,44 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>)}
+
+        {/* LEAVE RULES + FORM HEADER (ADMIN AND HR) */}
+        {showLeaveSettings && (
+          <>
+            {leaveError && (
+              <div className="space-y-3 border-b pb-8">
+                <div className="flex items-center gap-2 text-foreground font-semibold text-lg pb-2">
+                  <h2>Leave Rules</h2>
+                </div>
+                <p className="text-sm text-destructive">{leaveError}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="cursor-pointer"
+                  disabled={isLoadingLeave}
+                  onClick={loadLeavePolicy}
+                >
+                  {isLoadingLeave && <IconLoader2 className="h-4 w-4 animate-spin mr-2" />}
+                  Retry
+                </Button>
+              </div>
+            )}
+
+            {leavePolicy && (
+              <>
+                <LeaveRulesSection
+                  pools={leavePolicy.pools}
+                  types={leavePolicy.types}
+                  onChanged={loadLeavePolicy}
+                />
+                <FormHeaderSection
+                  header={leavePolicy.header}
+                  onChanged={loadLeavePolicy}
+                />
+              </>
+            )}
+          </>
+        )}
 
         {/* MEMBERS LIST (ADMIN ONLY) */}
         {showAdminSettings && profiles.length > 0 && (

@@ -264,15 +264,6 @@ const columns: ColumnDef<ApplicationRow>[] = [
 
 // ---------------------------------------------------------------------------
 // MOBILE CARD
-// On phones the table is replaced by one card per request. The whole card is
-// clickable, so there is no separate "View" button.
-// Order, top to bottom:
-//   1. "REQUEST #30" (small), name (bold), employee ID (muted), status pill on the right
-//   2. a divider
-//   3. Leave type + Total days
-//      Start date + End date
-//   4. a divider
-//   5. Date filed
 // ---------------------------------------------------------------------------
 function MobileLabel({ children }: { children: ReactNode }) {
   return <div className="text-xs text-muted-foreground">{children}</div>;
@@ -345,10 +336,6 @@ function MobileRequestCard({
 
 // ---------------------------------------------------------------------------
 // THE PAGE PIECE
-// The top bar (site-header.tsx) handles Status and Employee. Those reload the
-// list from the server. The controls here (search, Type, Date filed) only
-// narrow down the rows that are already loaded, so they react instantly.
-// Clicking a row (desktop) or a card (mobile) opens that request's detail page.
 // ---------------------------------------------------------------------------
 export function ApplicationsTable({ rows }: { rows: ApplicationRow[] }) {
   const router = useRouter();
@@ -372,7 +359,16 @@ export function ApplicationsTable({ rows }: { rows: ApplicationRow[] }) {
     return rows.filter((r) => {
       // 1) Search: matches the name, the employee ID, or the LN# (request number).
       if (term) {
-        const haystack = `${r.applicant_name} ${r.employee_id} ${r.id}`.toLowerCase();
+        const haystack = [
+          r.applicant_name,
+          r.employee_id,
+          r.id,
+          r.start_date,
+          r.end_date,
+          formatDate(r.start_date), // e.g. "Nov 3, 2026"
+          formatDate(r.end_date),
+          // optional: r.date_filed, formatDate(r.date_filed)
+        ].join(" ").toLowerCase();
         if (!haystack.includes(term)) return false;
       }
       // 2) Type: if any are ticked, the row's type must be one of them.
@@ -405,11 +401,11 @@ export function ApplicationsTable({ rows }: { rows: ApplicationRow[] }) {
   const openRequest = (id: number) => router.push(`${BASE_PATH}/${id}` as Route);
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       {/* Toolbar. Search grows to fill the space, buttons stay compact,
           and everything wraps onto a second line on small screens.
           Text and icons use TOOLBAR_TEXT / TOOLBAR_ICON so they scale with the screen. */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="relative min-w-[160px] flex-1">
           <Search
             className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground ${TOOLBAR_ICON}`}
@@ -417,7 +413,7 @@ export function ApplicationsTable({ rows }: { rows: ApplicationRow[] }) {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search employee, ID, or LN#..."
+            placeholder="Search employee, ID, LN#, or leave dates (e.g. Nov 3, 2026)..."
             aria-label="Search leave requests"
             className={`h-8 pl-9 ${TOOLBAR_TEXT}`}
           />
@@ -499,20 +495,23 @@ export function ApplicationsTable({ rows }: { rows: ApplicationRow[] }) {
         </Button>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={visibleRows}
-        pageSize={10}
-        itemLabel="requests"
-        onRowClick={(row) => openRequest(row.original.id)}
-        renderMobileCard={(row: Row<ApplicationRow>) => (
-          <MobileRequestCard
-            key={row.id}
-            data={row.original}
-            onOpen={() => openRequest(row.original.id)}
-          />
-        )}
-      />
+      <div className="min-h-0 flex-1">
+        <DataTable
+          columns={columns}
+          data={visibleRows}
+          pageSize={10}
+          itemLabel="requests"
+          fillHeight
+          onRowClick={(row) => openRequest(row.original.id)}
+          renderMobileCard={(row: Row<ApplicationRow>) => (
+            <MobileRequestCard
+              key={row.id}
+              data={row.original}
+              onOpen={() => openRequest(row.original.id)}
+            />
+          )}
+        />
+      </div>
     </div>
   );
 }

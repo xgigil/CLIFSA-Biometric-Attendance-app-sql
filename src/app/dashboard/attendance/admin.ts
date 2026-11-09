@@ -18,11 +18,14 @@ async function getCurrentUserRole(db: Db): Promise<string | null | undefined> {
 
   const { data: profile } = await db
     .from("profiles")
-    .select("role")
+    .select("role, status")
     .eq("id", user.id)
     .single();
 
-  return profile?.role;
+  const row = profile as { role?: string | null; status?: string | null; } | null;
+  if (!row || row.status !== "approved") return null;
+
+  return row.role;
 }
 
 // Used by Admin only permissions

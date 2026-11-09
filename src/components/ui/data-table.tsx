@@ -41,6 +41,8 @@ interface DataTableProps<TData, TValue> {
   pageSize?: number;
   pageSizeOptions?: number[];
   itemLabel?: string;
+  /** Fill parent height and scroll inside the table instead of using a viewport calc. */
+  fillHeight?: boolean;
 }
 
 function getPageItems(current: number, count: number): (number | "gap")[] {
@@ -65,6 +67,7 @@ export function DataTable<TData, TValue>({
   pageSize,
   pageSizeOptions = [10, 25, 50],
   itemLabel = "results",
+  fillHeight = false,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnVisibilityState, setColumnVisibilityState] =
@@ -110,9 +113,17 @@ export function DataTable<TData, TValue>({
 
   return (
     // CHANGED: gap-4 (16px) -> gap-3 (12px), so the footer sits closer to the table.
-    <div className="flex flex-col gap-3">
+    <div
+      className={`flex flex-col gap-3${fillHeight ? " h-full min-h-0" : ""}`}
+    >
       {/* Desktop Table View */}
-      <div className="hidden md:block relative w-full h-fit max-h-[calc(100vh-125px)] overflow-auto rounded-md border bg-card text-foreground shadow-md">
+      <div
+        className={
+          fillHeight
+            ? "hidden md:block relative w-full min-h-0 flex-1 overflow-auto rounded-md border bg-card text-foreground shadow-md"
+            : "hidden md:block relative w-full h-fit max-h-[calc(100vh-125px)] overflow-auto rounded-md border bg-card text-foreground shadow-md"
+        }
+      >
         <Table noWrapper className="table-fixed">
           <TableHeader className="sticky top-0 z-10 bg-muted shadow-sm">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -212,7 +223,11 @@ export function DataTable<TData, TValue>({
 
       {/* Page footer style */}
       {pageSize && totalRows > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-muted-foreground">
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-muted-foreground${
+            fillHeight ? " shrink-0" : ""
+          }`}
+        >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <span>
               Showing {firstShown}–{lastShown} of {totalRows} {itemLabel}
